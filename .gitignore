@@ -1,0 +1,12 @@
+Detected_events
+Detections
+Focal_Mechanisms
+Templates
+__pycache__
+Locations/NonLinLoc_NZW3D_2.1
+Locations/NonLinLoc_NZW3D_2.2
+Locations/Relocations_from_NLL_NZ3D2.1
+Locations/GrowClust
+Locations/HypoDD2
+*.xml
+*.json
