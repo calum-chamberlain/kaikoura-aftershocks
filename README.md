@@ -7,17 +7,20 @@ used EQcorrscan to generate templates and run the correlations.
 
 ## Directory structure
 
-Kaik_afterslip/
-    README.md - This file
-    Templates/
-        SIMUL_locations.xml - Locations and picks from STREWN as relocated using SIMUL
-        *.tgz - Tribe archives from EQcorrscan
-    Detections/
-        *.tgz - Party archives from EQcorrscan
-    Scripts/
-        generate_templates.py - Script for generating templates
-        kaikoura_detect.py - Script for running the matched-filter routines
-        simul_locate.py - Locate detections using SIMUL
+- Kaik_afterslip/
+    - README.md - This file
+    - Templates/
+        - SIMUL_locations.xml - Locations and picks from STREWN as relocated using SIMUL
+        - *.tgz - Tribe archives from EQcorrscan
+    - Detections/
+        - *.tgz - Party archives from EQcorrscan
+    - Scripts/
+        - Workflow/
+            - generate_templates.py - Script for generating templates
+            - kaikoura_detect.py - Script for running the matched-filter routines
+            - simul_locate.py - Locate detections using SIMUL
+        - Analysis_Visualisation/  - Scripts and functions for analysing the catalogue
+        
 
 ## Workflow:
 
