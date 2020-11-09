@@ -585,10 +585,19 @@ def plot_locations(
         min_latitude=min_latitude, max_latitude=max_latitude,
         min_depth=min_depth, max_depth=max_depth, starttime=starttime,
         endtime=endtime)
+
+    quakes = quakes.sort_values(
+        by="origintime", ignore_index=True, ascending=False)
     
     lats, lons, depths, times = (
         quakes.latitude.to_numpy(), quakes.longitude.to_numpy(),
         quakes.depth.to_numpy() / 1000., quakes.origintime.to_list())
+
+    if size is None:
+        size = quakes.magnitude ** 2
+        in_size = None
+    else:
+        in_size = size # Used for x-section
 
     starttime = starttime or min(times)
     if color_by == "timestamp":
@@ -763,8 +772,8 @@ def plot_locations(
                 earthquakes=quakes, start_latitude=x_start[0], 
                 start_longitude=x_start[1], end_latitude=x_end[0], 
                 end_longitude=x_end[1], max_depth=max_depth, starttime=starttime,
-                endtime=endtime, logarithmic_color=logarithmic_color, size=size,
-                colormap=colormap, color_by=color_by,
+                endtime=endtime, logarithmic_color=logarithmic_color, 
+                size=in_size, colormap=colormap, color_by=color_by,
                 **cross_section_kwargs)
             if x_section is None:
                 continue
@@ -1125,6 +1134,9 @@ def interactive_x_section(
                          *args, **kwargs)
     projection = fig.gca().projection
 
+    if "focal_mechanisms" in kwargs.keys():
+        kwargs.pop("focal_mechanisms")
+
     lons, lats, line, x_section = [], [], None, plt.figure()
 
     def onclick(event):
@@ -1143,13 +1155,16 @@ def interactive_x_section(
                 transform=ccrs.PlateCarree())
             fig.canvas.draw()
             x_section.clear()
-            x_section = plot_x_section(
-                earthquakes=earthquakes, start_latitude=lats[0], 
-                start_longitude=lons[0], end_latitude=lats[-1], 
-                end_longitude=lons[-1], swath_half_width=swath_half_width, 
-                color_by="timestamp", logarithmic_color=True, 
-                fig=x_section, colormap="viridis", size=None,
-                *args, **kwargs)
+            try:
+                x_section = plot_x_section(
+                    earthquakes=earthquakes, start_latitude=lats[0], 
+                    start_longitude=lons[0], end_latitude=lats[-1], 
+                    end_longitude=lons[-1], swath_half_width=swath_half_width, 
+                    color_by="timestamp", logarithmic_color=True, 
+                    fig=x_section, colormap="viridis", size=None,
+                    *args, **kwargs)
+            except TypeError:
+                pass
             x_section.suptitle(
                 f"({lats[0]:.4f}, {lons[0]:.4f}) - ({lats[-1]:.4f}, {lons[-1]:.4f})")
             x_section.canvas.draw()
@@ -1580,7 +1595,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     earthquakes = pd.read_csv(
-        "../Locations/GrowClust_located_magnitudes_callibrated.csv",
+        "../../Locations/GrowClust_located_magnitudes_callibrated_focal_mechanisms.csv",
         parse_dates=["time"]) 
     earthquakes = earthquakes.rename(columns={"time": "origintime"})
 

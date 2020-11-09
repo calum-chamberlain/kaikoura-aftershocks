@@ -112,7 +112,8 @@ def compare_to_geonet():
     from progressbar import ProgressBar
 
 
-    my_quakes = pd.read_csv("SIMUL_located_magnitudes.csv", parse_dates=["time"])
+    my_quakes = pd.read_csv(
+        "../../Locations/GrowClust_located_magnitudes_callibrated_focal_mechanisms.csv", parse_dates=["time"])
     my_quakes = my_quakes.rename(columns={'time': 'origintime'})
 
     startdate, enddate = (
@@ -141,7 +142,7 @@ def compare_to_geonet():
         deltas = np.abs(geonet_origin_times - origin_seconds)
         index = np.argmin(deltas)
         delta = deltas[index]
-        if delta <= 1.0:
+        if delta <= 5.0:
             # distance check
             dist, _, _ = gps2dist_azimuth(
                 lat1=geonet_quakes.latitude[index],
@@ -150,7 +151,7 @@ def compare_to_geonet():
                 lon2=my_quakes.longitude[i])
             dist = ((dist ** 2) + (
                 (geonet_quakes.depth[index] - my_quakes.depth[i]) ** 2)) ** .5
-            if dist <= 5000:  # within 10km
+            if dist <= 10000:  # within 10km
                 geonet_id = geonet_quakes.publicid[index]
                 if geonet_id in matched_quakes.keys():
                     # Check whether this is a better match

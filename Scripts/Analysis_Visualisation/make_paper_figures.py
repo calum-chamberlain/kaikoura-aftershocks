@@ -26,7 +26,7 @@ CROSS_SECTIONS = {
     "D": [(-41.827, 174.385), (-41.636, 174.147)],  # Cape Campbell
     "E": [(-41.958, 174.004), (-41.65296, 174.5287)]
 }
-RELOCATED_EVENTS = "../Locations/GrowClust_located_magnitudes_callibrated_focal_mechanisms.csv"
+RELOCATED_EVENTS = "../../Locations/GrowClust_located_magnitudes_callibrated_focal_mechanisms.csv"
 
 MAINSHOCK = (-42.626466, 172.990578, 12.390625)  # My NLL location.
 MAINSHOCK_TIME = dt.datetime(2016, 11, 13, 11, 2, 56)  # GeoNet origin time
