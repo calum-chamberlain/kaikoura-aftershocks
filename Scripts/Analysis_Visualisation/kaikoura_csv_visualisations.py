@@ -627,7 +627,7 @@ def plot_locations(
 
     fig, map_ax, cbar_ax, cb = _blank_map(
         lats=lats, lons=lons, color=colors, projection=projection, 
-        resolution="10m", colormap=colormap, figsize=figsize, 
+        resolution="full", colormap=colormap, figsize=figsize, 
         proj_kwargs=proj_kwargs, norm=norm, continent_fill_color="0.65",
         water_fill_color="0.9")
 
@@ -1445,7 +1445,8 @@ def plot_cumulative(
         _t = [t.to_pydatetime() for t in _times]
         if normalize:
             cumulative = cumulative / max(cumulative)
-        handle = ax.step(_t, cumulative, lw=2, zorder=10, linestyle="--")[0]
+        handle = ax.step(
+            _t, cumulative, lw=2, zorder=10, linestyle="--", color="red")[0]
         handles.append(handle)
         labels.append(eq_label)
 
