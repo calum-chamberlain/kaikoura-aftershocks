@@ -18,7 +18,8 @@ from gps_data_play import GPSStation
 home = os.path.expanduser("~")
 
 FAULT_FILE = f"{home}/.gmt_data/faults_NZ_WGS84.gmt"
-MAINSHOCK = (-42.626466, 172.990578, 12.390625)  # My NLL location.
+
+MAINSHOCK = (-42.623531, 172.988788, 12.917969)  # My NLL location.
 
 DEFAULT_XSECTIONS = {"1": [(-42.76, 172.824), (-41.572, 174.637)]}
 
@@ -467,7 +468,8 @@ def plot_fm(
     xy = (longitude, latitude)
     # xy = ccrs.PlateCarree().transform_point(
     #     x=longitude, y=latitude, src_crs=axes.projection)
-    colors, p = plot_dc(np1, size=100, xy=xy, width=width)
+    scalar = axes.get_figure().dpi / plt.rcParams["figure.dpi"]
+    colors, p = plot_dc(np1, size=100, xy=xy, width=width * scalar)
 
     col = collections.PatchCollection(p, match_original=False)
     fc = [color if c == 'b' else "w" for c in colors]
@@ -542,6 +544,8 @@ def plot_locations(
     focal_mechanisms: bool = False,
     plot_stations: bool = True,
     rupture_color: str = "cyan",
+    rasterized: bool = True,
+    fig=None, map_ax=None, cbar_ax=None,
 ):
     import matplotlib.pyplot as plt
     import cartopy.crs as ccrs
@@ -629,7 +633,7 @@ def plot_locations(
         lats=lats, lons=lons, color=colors, projection=projection, 
         resolution="full", colormap=colormap, figsize=figsize, 
         proj_kwargs=proj_kwargs, norm=norm, continent_fill_color="0.65",
-        water_fill_color="0.9")
+        water_fill_color="0.9", fig=fig, map_ax=map_ax, cm_ax=cbar_ax)
 
     if relief:
         shaded_srtm = PostprocessedRasterSource(
@@ -649,13 +653,13 @@ def plot_locations(
     if not color_by.lower() == "rake":
         map_ax.scatter(
             lons, lats, marker="o", s=size, c=colors, zorder=10, alpha=0.9,
-            cmap=colormap, transform=ccrs.PlateCarree(), rasterized=True,
+            cmap=colormap, transform=ccrs.PlateCarree(), rasterized=rasterized,
             norm=norm)
     else:
         # Just plot in black
         map_ax.scatter(
             lons, lats, marker="o", s=size, c="k", zorder=10, alpha=0.9,
-            cmap=colormap, transform=ccrs.PlateCarree(), rasterized=True,
+            cmap=colormap, transform=ccrs.PlateCarree(), rasterized=rasterized,
             norm=norm)
     
     # Plot mainshock
@@ -682,7 +686,8 @@ def plot_locations(
             red, green, blue, _alpha = colormap(norm(color))
             plot_fm(strike=s[i], dip=d[i], rake=r[i],
                     latitude=lat[i], longitude=lon[i], zorder=20, axes=map_ax,
-                    width=15, color=(red, green, blue), alpha=0.6)
+                    width=15, color=(red, green, blue), alpha=0.6, 
+                    rasterize=rasterized)
     
     # Plot Faults
     faults = read_faults(
@@ -692,7 +697,7 @@ def plot_locations(
         flons, flats = zip(*fault)
         f_line, = map_ax.plot(
             flons, flats, color="k", linewidth=1.5, zorder=8,
-            transform=ccrs.PlateCarree(), rasterized=True)
+            transform=ccrs.PlateCarree(), rasterized=rasterized)
 
     # Plot Kaikoura ruptures
     try:
@@ -705,7 +710,7 @@ def plot_locations(
             flons, flats = zip(*fault)
             kaik_f_line, = map_ax.plot(
                 flons, flats, color=rupture_color, linewidth=2.0, zorder=9,
-                transform=ccrs.PlateCarree(), rasterized=True)
+                transform=ccrs.PlateCarree(), rasterized=rasterized)
 
     if plot_stations:
         # Plot GPS stations
@@ -803,8 +808,8 @@ def plot_locations(
     map_ax.clabel(contours, inline=1, fontsize=10, fmt="%i km")
 
     # Plot scale bar
-    scale_bar(map_ax, (0.05, 0.1), scale_bar_length, angle=0)
-    scale_bar(map_ax, (0.05, 0.1), scale_bar_length, angle=90)
+    scale_bar(map_ax, (0.85, 0.05), scale_bar_length, angle=0)
+    scale_bar(map_ax, (0.85, 0.05), scale_bar_length, angle=90)
 
     handles = [f_line, mainshock, contours.collections[0]]
     labels = ["Active Faults", "Mainshock", "Williams et al. Interface"]
@@ -815,7 +820,8 @@ def plot_locations(
         handles.extend([gps_markers, seismograph_markers])
         labels.extend(["cGPS", "Seismograph"])
 
-    fig.legend(handles=handles, labels=labels, framealpha=1.0)
+    map_ax.legend(handles=handles, labels=labels, framealpha=1.0, 
+                  loc="upper left").set_zorder(10000)
 
     if cross_sections:
         return fig, x_sections
@@ -1192,6 +1198,7 @@ def distance_time_plot(
     colormap: str = "plasma_r",
     size: float = 1.0,
     dip_plot: bool = False,
+    fig = None, ax = None,
 ):
     import matplotlib.pyplot as plt
     from scipy.interpolate import interp2d
@@ -1265,7 +1272,15 @@ def distance_time_plot(
         return None
     
     # Plot!
-    fig, ax = plt.subplots()
+    if ax is not None and fig is None:
+        print("Figure is none")
+        fig = ax.get_figure()
+    elif fig is not None and ax is None:
+        print("ax is None")
+        ax = fig.gca()
+    else:
+        print("Neither fig nor ax is defined")
+        fig, ax = plt.subplots()
 
     x, y, z, times, mags, event_ids = zip(
         *[(loc.x, loc.y, loc.z * -1, loc.time, loc.magnitude, loc.event_id)
@@ -1278,8 +1293,11 @@ def distance_time_plot(
         mainshock.y, mainshock.z = mainshock.z, mainshock.y
 
     starttime = starttime or min(times)
-    norm = Normalize(vmin=min(z), vmax=max(z))
-    fig, ax = plt.subplots()
+
+    norm = Normalize(vmin=min(z), vmax=20.0)
+    colormap = copy.copy(plt.get_cmap(colormap))
+    colormap.set_over(color="k")
+
     size = size or np.array(mags) ** 2
 
     if logx:
