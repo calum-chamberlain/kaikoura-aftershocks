@@ -61,6 +61,11 @@ class GPSData():
             stream += trace
         return stream.merge()[0]
 
+    def copy(self):
+        import copy
+        return copy.deepcopy(self)
+
+
     def trim(self, starttime: dt.datetime = None, endtime: dt.datetime = None):
         starttime = starttime or self.times[0]
         endtime = endtime or self.times[-1]
@@ -101,11 +106,10 @@ class GPSData():
         trend_endtime = trend_endtime or self.times[-1]
         mask = np.where(
             np.logical_and(self.times >= trend_starttime, 
-                           self.times <= trend_endtime))
-        if len(mask) == 0:
-            print(f"Could not detrend, no data between {trend_starttime} and "
-                  f"{trend_endtime}")
-            return self
+                           self.times <= trend_endtime))[0]
+        if mask.sum() == 0:
+            raise Exception(
+                f"Could not detrend, no data between {trend_starttime} and {trend_endtime}")
         x, y = self.times[mask], self.observations[mask]
         x = np.array([(t - x[0]).total_seconds() for t in x])
         try:
@@ -289,6 +293,10 @@ class GPSStation():
         assert n and e, "Requires North (n) and East (e) components"
         assert np.all(n.times == e.times), "Requires the same sampling of n and e"
         return n, e
+
+    def copy(self):
+        import copy
+        return copy.deepcopy(self)
 
     def zero_start(self, index: int = 0):
         for component in self:
