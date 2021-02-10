@@ -22,7 +22,7 @@ def get_ristau_moment_tensor_db(
     end_time: UTCDateTime = UTCDateTime(2020, 1, 1),
 ):
     """
-    Get a dataframe of the eatrhquakes in the GeoNet catalogue.
+    Get a dataframe of the earthquakes in the GeoNet catalogue.
     
     Parameters
     ----------
