@@ -1142,10 +1142,6 @@ def fig_8(size=(12, 8)):
     """
     Along-strike cross-section with aftershock density and slip models
 
-    TODO:
-     - Other slip models?
-     - Qs behind aftershocks
-
     """
     earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
     earthquakes = earthquakes.rename(columns={"time": "origintime"})
@@ -1245,9 +1241,190 @@ def fig_8(size=(12, 8)):
     return x_section
 
 
-def fig_9(size=(12.8, 9.6)):
+def compute_area(
+    min_longitude: float, 
+    max_longitude: float, 
+    min_latitude: float, 
+    max_latitude: float
+) -> float:
+    import pyproj    
+    import shapely.ops as ops
+    from shapely.geometry.polygon import Polygon
+    from functools import partial
+
+
+    geom = Polygon([
+        (min_longitude, min_latitude), 
+        (max_longitude, min_latitude),
+        (max_longitude, max_latitude), 
+        (min_longitude, max_latitude), 
+        (min_longitude, min_latitude)])
+    geom_area = ops.transform(
+        partial(
+            pyproj.transform,
+            pyproj.Proj(init='EPSG:4326'),
+            pyproj.Proj(
+                proj='aea',
+                lat_1=geom.bounds[1],
+                lat_2=geom.bounds[3])),
+        geom)
+
+    return geom_area.area / 1e6
+
+
+def fig_9(size=(9.6, 12.8)):
     """ GPS and cumulative EQs. """
-    pass
+    from gps_data_play import GPSStation
+    from kaikoura_csv_visualisations import filter_earthquakes
+    import matplotlib.pyplot as plt
+
+    earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
+    earthquakes = earthquakes.rename(columns={"time": "origintime"})
+
+    starttime, endtime = dt.datetime(2016, 11, 14), dt.datetime(2019, 11, 1)
+
+    earthquakes = earthquakes.sort_values(by="origintime", ignore_index=True)
+    earthquakes = filter_earthquakes(earthquakes, starttime=starttime, endtime=endtime)
+
+    fig, axes = plt.subplots(nrows=5, ncols=1, sharex=True, sharey=False, figsize=size)
+    prop_cycle = plt.rcParams['axes.prop_cycle']
+    colors = prop_cycle.by_key()['color']
+
+    regions = {
+        "Cape Campbell": dict(
+            stations=["CMBL"], region=(174.1, 174.5, -41.85, -41.69), ax=axes[0]),
+        "Kekerengu": dict(
+            stations=["LOK1", "GLOK"], region=(173.86, 174.1, -42.07, -41.85), ax=axes[1]),
+        "Snowgrass": dict(
+            stations=["MUL1", "LOOK"], region=(173.7, 173.86, -42.3, -42), ax=axes[2]),
+        "Kaikoura": dict(
+            stations=["KAIK"], region=(173.4, 173.7, -42.6, -42.3), ax=axes[3]),
+        "Epicentral": dict(
+            stations=["MRBL"], region=(172.77, 173.4, -42.76, -42.6), ax=axes[4])}
+
+    handles, labels = [], []
+
+    for region_name in regions.keys():
+        region = regions[region_name]
+        _region = region["region"]
+        quakes = filter_earthquakes(
+            earthquakes, min_longitude=_region[0], max_longitude=_region[1],
+            min_latitude=_region[2], max_latitude=_region[3])
+        cumulative = np.arange(len(quakes)) / compute_area(*_region)
+        handle, = region["ax"].plot(quakes.origintime, cumulative, "--")
+        if "Cumulative density" not in labels:
+            labels.append("Cumulative density")
+            handles.append(handle)
+        
+        gps_ax = region["ax"].twinx()
+
+        gps_stations = [GPSStation.from_geonet(sta) for sta in region["stations"]]
+        fudge_factors = {}
+        for station in gps_stations:
+            try:
+                station.detrend(dt.datetime(2015, 1, 1), dt.datetime(2016, 11, 1))
+            except:
+                print(f"Could not detrend for {station[0].reciever}")
+            station = station.trim(starttime, endtime).zero_start()
+            for component, name, color in zip(("u", "n", "e"), ("Vertical", "North", "East"), colors):
+                displacement = station.select(component)[0]
+                times, data = displacement.times, displacement.observations
+                if name in fudge_factors.keys():
+                    # Apply a shift - only works if there is overlap of data
+                    loc = np.where(times == fudge_factors[name][0])
+                    if len(loc) == 0:
+                        print("Cannot fudge")
+                        continue
+                    delta = fudge_factors[name][1] - data[loc[0][0]]
+                    data += delta
+                handle, = gps_ax.plot(times, data, zorder=2, color=color)
+                if name not in labels:
+                    labels.append(name)
+                    handles.append(handle)
+                # Keep track of the end of the data
+                fudge_factors.update(
+                    {name: (displacement.times[-1], displacement.observations[-1])})
+        gps_ax.set_ylabel(f'{", ".join(region["stations"])} (mm)')
+        gps_ax.grid("on")
+        region["ax"].set_ylabel("Earthquakes per $km^2$")
+    
+    fig.legend(handles=handles, labels=labels)
+    axes[-1].set_xlim(starttime, endtime)
+    fig.subplots_adjust(hspace=0)
+
+
+    for _format in PLOT_FORMATS:
+        fig.savefig(f"{OUT}/Figure_9.{_format}")
+
+
+def plot_all_gps(size=(18, 18)):
+    from gps_data_play import GPSStation
+    import matplotlib.pyplot as plt
+
+    gps_stations = ("WITH", "SEDD", "CMBL", "LOK1", "GLOK", "GDS1", "LOOK", 
+                    "MUL1", "CLRR", "KAIK", "HANM", "MRBL")
+
+
+
+    fig, axes = plt.subplots(nrows=len(gps_stations), ncols=2, 
+                             sharex=True, sharey=True, figsize=size)
+    
+    component_label_mapper = {
+        "u": "Vertical displacement",
+        "n": "North displacement",
+        "e": "East displacement"}
+    component, normalize, starttime, endtime, moment, split_on_fm, plot_errors = (
+        "all", False, dt.datetime(2016, 11, 14),
+        dt.datetime(2019, 11, 1), False, False, True)
+
+    for station, row in zip(gps_stations, axes):
+        ax, detrended_ax = row
+        handles, labels = [], []
+        gps_data = GPSStation.from_geonet(station)
+        detrended = True
+        try:
+            gps_data_detrended = gps_data.copy().detrend(
+                dt.datetime(2015, 1, 1), dt.datetime(2016, 11, 1))
+        except Exception as e:
+            detrended, gps_data_detrended = False, gps_data
+            print(f"Could not detrend {station} due to {e}")
+            detrended_ax.set_facecolor("lightgrey")
+        gps_data = gps_data.trim(starttime, endtime).zero_start()
+        if detrended:
+            gps_data_detrended = gps_data_detrended.trim(starttime, endtime).zero_start()
+        else:
+            gps_data_detrended = None
+        gps_times = gps_data[0].times
+        for _ax, _gps_data in zip((ax, detrended_ax), (gps_data, gps_data_detrended)):
+            if _gps_data is None:
+                continue
+            for _component in ("u", "n", "e"):
+                _disp = _gps_data.select(_component)[0]
+                if normalize:
+                    _disp.observations /= _disp.observations[-1]
+                handle = _ax.plot(gps_times, _disp.observations, zorder=2)[0]
+                if plot_errors:
+                    _ax.fill_between(
+                        gps_times, _disp.observations + _disp.errors,
+                        _disp.observations - _disp.errors, alpha=0.4)
+                label = component_label_mapper[_component]
+                if label not in labels:
+                    handles.append(handle)
+                    labels.append(label)
+            _ax.grid("on")
+        ax.set_ylabel(f"{station} (mm)")
+        
+    fig.legend(handles=handles, labels=labels, loc="lower right",
+              facecolor="white", framealpha=1.0)
+    fig.subplots_adjust(wspace=0.01, hspace=0)
+    axes[-1][0].set_xlim(starttime, endtime)
+    axes[-1][0].set_ylim(-50, 350)
+    axes[0][0].set_title("Raw")
+    axes[0][1].set_title("Detrended between 2015-01-01 and 2016-11-01")
+
+    for _format in PLOT_FORMATS:
+        fig.savefig(f"{OUT}/Supplementary_Figure_GPS.{_format}")
+
 
 
 def plot_donna_qs(
