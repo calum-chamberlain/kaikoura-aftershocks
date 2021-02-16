@@ -4,6 +4,10 @@ import pandas as pd
 import datetime as dt
 from typing import Tuple, List
 import cartopy.crs as ccrs
+import rasterio
+import pyproj
+
+from rasterio.mask import mask
 
 from kaikoura_csv_visualisations import (
     plot_locations, get_kaikoura_faults, get_williams_contours, read_faults,
@@ -51,6 +55,131 @@ NZTM = ccrs.TransverseMercator(
 plt.style.use("default")
 
 
+def clip_dem(
+    min_longitude: float, 
+    max_longitude: float, 
+    min_latitude: float, 
+    max_latitude: float,
+    full_dem_filename: str = "nztm.tif",
+    clipped_dem_filename: str = "clipped_dem.tif",
+):
+    import warnings
+    from shapely.geometry import Polygon
+    from shapely.ops import transform
+    # Make the Polygon
+    geom = Polygon([
+        (min_longitude, min_latitude), 
+        (max_longitude, min_latitude),
+        (max_longitude, max_latitude), 
+        (min_longitude, max_latitude), 
+        (min_longitude, min_latitude)])
+
+    # Get the co-ordinate system of the grid
+    with rasterio.open(full_dem_filename) as f:
+        grid_proj = f"epsg:{f.crs.to_epsg()}"
+
+    # Define a transformer
+    transformer = pyproj.Transformer.from_proj(
+        proj_from=pyproj.Proj("epsg:4326"),   # From WGS84 (lat/lon)
+        proj_to=grid_proj,           # To the projection of our grid.
+        always_xy=True)  # Set to give in longitude, latitude as above
+
+    nztm_geom = transform(transformer.transform, geom)
+    
+    # Clip
+    with rasterio.open(full_dem_filename) as f:
+        clipped_dem, clip_transform = mask(f, [nztm_geom], crop=True)
+        # Get and maintain the meta-data - we will need it for writing back out
+        meta_data = f.meta
+    
+    meta_data.update({"driver": "GTiff",
+                      "height": clipped_dem.shape[1],
+                      "width": clipped_dem.shape[2],
+                      "transform": clip_transform})
+    
+    # Lets be nice and warn that we are overwriting a file
+    if os.path.isfile(clipped_dem_filename):
+        warnings.warn(f"Overwriting {clipped_dem_filename} - hope you didn't want that!")
+        os.remove(clipped_dem_filename)  # Required on windows
+
+    with rasterio.open(clipped_dem_filename, "w", **meta_data) as dest:
+        dest.write(clipped_dem)
+    
+    return
+
+
+def plot_topography(
+    map_ax,
+    min_latitude: float, 
+    max_latitude: float, 
+    min_longitude: float,
+    max_longitude: float,
+    cmap: str = "Greys",
+    clip: float = None,
+    vertical_exageration = 0.1,
+):
+    import xarray as xr
+    from rasterio.warp import transform
+    from matplotlib.colors import LightSource
+    from matplotlib import cm
+
+    clip_dem(
+        min_longitude=min_longitude - .2,
+        max_longitude=max_longitude + .2,
+        min_latitude=min_latitude - .2,
+        max_latitude=max_latitude + .2)
+
+    # Open the clipped DEM file
+    dem = xr.open_rasterio("clipped_dem.tif")
+
+    # Work out the size of the DEM
+    # ny, nx = len(dem['y']), len(dem['x'])
+
+    # # Make a grid of nx, ny points
+    # x, y = np.meshgrid(dem['x'], dem['y'])
+
+    # # Make a transformer to go from the x, y co-ordinate system to latitude and longitude
+    # lon, lat = transform(dem.crs, {'init': 'EPSG:4326'},
+    #     x.flatten(), y.flatten())
+
+    # # Reshape the arrays back into the grid (this gets lost while transforming)
+    # lon = np.asarray(lon).reshape((ny, nx))
+    # lat = np.asarray(lat).reshape((ny, nx))
+
+    # # Add the longitude and latitude values into the DEM Xarray
+    # dem.coords['lon'] = (('y', 'x'), lon)
+    # dem.coords['lat'] = (('y', 'x'), lat)
+
+    # We want to make sure everything without data is masked
+    dem = dem.where(dem != dem.nodatavals, drop=True)
+
+    # Apply clip
+    if clip:
+        dem = dem.where(dem >= clip, drop=True)
+
+    # Work on shading
+    lightsource = LightSource(azdeg=315, altdeg=45)
+    hillshade = lightsource.shade(
+        np.nan_to_num(dem[0]), vert_exag=vertical_exageration, 
+        blend_mode='soft', cmap=cm.get_cmap(cmap))
+    
+    # Ensure the shape is right - this is probably because one function 
+    # taking edges and the other taking middles AND IS A HACK!!!
+    hillshade = hillshade[0:len(dem.y) - 1, 0:len(dem.x) - 1]
+
+
+    # Quick check whether the EPSG matches NZTM EPSG
+    if dem.crs.split(":")[-1] == "2193":
+        dem_proj = NZTM
+    else:
+        dem_proj = ccrs.epsg(dem.crs.split(":")[-1])
+    map_ax.pcolorfast(
+        dem.x, dem.y, hillshade, transform=dem_proj)
+
+    # dem.plot(ax=map_ax, x='lon', y='lat', transform=ccrs.PlateCarree(),
+    #          cmap=cmap, add_colorbar=False)
+    return
+
 def plot_subduction_zone(
     map_ax, 
     min_latitude: float, 
@@ -64,13 +193,13 @@ def plot_subduction_zone(
     lat_mask, lon_mask = (np.ones_like(subd_lats, dtype=bool), 
                           np.ones_like(subd_lons, dtype=bool))
     if min_latitude:
-        lat_mask = np.logical_and(lat_mask, subd_lats >= min_latitude - 2)
+        lat_mask = np.logical_and(lat_mask, subd_lats >= min_latitude - .2)
     if max_latitude:
-        lat_mask = np.logical_and(lat_mask, subd_lats <= max_latitude + 2)
+        lat_mask = np.logical_and(lat_mask, subd_lats <= max_latitude + .2)
     if min_longitude:
-        lon_mask = np.logical_and(lon_mask, subd_lons >= min_longitude - 2)
+        lon_mask = np.logical_and(lon_mask, subd_lons >= min_longitude - .2)
     if max_longitude:
-        lon_mask = np.logical_and(lon_mask, subd_lons <= max_longitude + 2)
+        lon_mask = np.logical_and(lon_mask, subd_lons <= max_longitude + .2)
 
     subd_lats = subd_lats[lat_mask]
     subd_lons = subd_lons[lon_mask]
@@ -78,7 +207,11 @@ def plot_subduction_zone(
     contours = map_ax.contour(
         subd_lons, subd_lats, subd_depths, colors="k", linestyles="dashed",
         transform=ccrs.PlateCarree(), levels=levels)
-    map_ax.clabel(contours, inline=1, fontsize=10, fmt="%i km")
+    labels = map_ax.clabel(
+        contours, levels=levels, inline=1, fontsize=10, fmt="%i km")
+    # print(labels)
+    # for label in labels:
+    #     label.set_bbox(dict(boxstyle="round", fc="w", ec="0.0", alpha=0.7))
     return contours
 
 
@@ -159,9 +292,9 @@ def plot_map_and_section(
     
     sizes = quakes.magnitude ** 2
     colors = depths
-    norm = Normalize(vmin=min(colors), vmax=20.0)
+    norm = Normalize(vmin=0.0, vmax=20.0)
     colormap = copy.copy(plt.get_cmap("plasma_r"))
-    colormap.set_over(color="k")
+    # colormap.set_over(color="k")
 
     fig, map_ax, cbar_ax, cb = _blank_map(
         lats=lats, lons=lons, color=colors, projection="local", 
@@ -355,11 +488,19 @@ def fig_1(size=(10, 10)):
 
     map_ax = fig.add_axes([ax_x0, ax_y0, ax_width, ax_height],
                           projection=proj)
+    map_ax.set_extent(
+        [min_longitude, max_longitude, min_latitude, max_latitude], 
+        crs=ccrs.PlateCarree())
+    
+    plot_topography(
+        map_ax, min_latitude=min_latitude, min_longitude=min_longitude,
+        max_latitude=max_latitude, max_longitude=max_longitude, cmap="Greys",
+        clip=2)
 
     coast = cfeature.GSHHSFeature(
-        scale="high", levels=[1], facecolor="0.9", 
+        scale="full", levels=[1], facecolor="none", 
         edgecolor="0.4")
-    map_ax.set_facecolor("0.65")
+    map_ax.set_facecolor("white")
     map_ax.add_feature(coast)
 
     gl = map_ax.gridlines(
@@ -431,7 +572,7 @@ def fig_1(size=(10, 10)):
             name="London Hills", label_lon=174.33, label_lat=-41.7, 
             fault_lon=174.22, fault_lat=-41.74, ha="left"), 
         kek=dict(
-            name="Kekerengu", label_lon=174.19, label_lat=-41.98, 
+            name="Kekerengu", label_lon=174.19, label_lat=-42.02, 
             fault_lon=173.99, fault_lat=-41.98, ha="left"), 
         paptea=dict(
             name="Papatea", label_lon=174, label_lat=-42.16, 
@@ -481,11 +622,7 @@ def fig_1(size=(10, 10)):
                     bbox=dict(fc="white", boxstyle="round", ec="black"))
         map_ax.plot((_fault["label_lon"], _fault["fault_lon"]),
                     (_fault["label_lat"], _fault["fault_lat"]),
-                    "k:", linewidth=1.0, transform=ccrs.PlateCarree())
-
-    map_ax.set_extent(
-        [min_longitude, max_longitude, min_latitude, max_latitude], 
-        crs=ccrs.PlateCarree())
+                    "r:", linewidth=1.0, transform=ccrs.PlateCarree())
 
     # Plot scale bar
     scale_bar(map_ax, (0.05, 0.05), 20, angle=0)
@@ -496,9 +633,12 @@ def fig_1(size=(10, 10)):
     big_max_lat, big_min_lat, big_min_lon, big_max_lon = (
         -36, -47, 166, 178.5)
     big_map_ax = fig.add_axes([0.57, 0.05, 0.35, 0.35], projection=proj)
+    big_map_ax.set_extent(
+        [big_min_lon, big_max_lon, big_min_lat, big_max_lat],
+        crs=ccrs.PlateCarree())
     
     coast_big = cfeature.GSHHSFeature(
-        scale="full", levels=[1], facecolor="0.9", 
+        scale="intermediate", levels=[1], facecolor="0.9", 
         edgecolor="0.4")
     big_map_ax.set_facecolor("0.65")
     big_map_ax.add_feature(coast_big)
@@ -543,9 +683,11 @@ def fig_1(size=(10, 10)):
         (min_latitude, min_latitude, max_latitude, max_latitude, min_latitude),
         color="red", linewidth=2.0, transform=ccrs.PlateCarree())
 
-    big_map_ax.set_extent(
-        [big_min_lon, big_max_lon, big_min_lat, big_max_lat],
-        crs=ccrs.PlateCarree())
+    # Add Lanza template box
+    big_map_ax.plot(
+        (172.75, 175.2, 175.2, 172.75, 172.75),
+        (-43, -43, -40.8, -40.8, -43),
+        color="blue", linewidth=2.0, transform=ccrs.PlateCarree())
 
     fig.legend(
         handles=(f_line, kaik_f_line, mainshock, contours.collections[0],
@@ -679,7 +821,7 @@ def fig_4(size=(9, 15)):
     return
 
 
-def fig_5(size=(7, 16)):
+def fig_8(size=(7, 16)):
     """
     Cape Campbell sections - illustrate lack of hard stop,
     illustrate many faults ruptured, show subd-like earthquakes, and similarity
@@ -923,11 +1065,11 @@ def fig_5(size=(7, 16)):
     fig.subplots_adjust(hspace=1.5)
     
     for _format in PLOT_FORMATS:
-        fig.savefig(f"{OUT}/Figure_5.{_format}", dpi=200)
+        fig.savefig(f"{OUT}/Figure_8.{_format}", dpi=200)
     return fig
 
 
-def fig_6(size=(7, 16)):
+def fig_5(size=(7, 16)):
     """
     Point Keen cross-section with faults and FM
 
@@ -1140,15 +1282,15 @@ def fig_6(size=(7, 16)):
     
     for _format in PLOT_FORMATS:
         print(f"Saving as {_format}")
-        fig.savefig(f"{OUT}/Figure_6.{_format}", dpi=200)
+        fig.savefig(f"{OUT}/Figure_5.{_format}", dpi=200)
     return fig
 
 
-def fig_7(size=(12.8, 9.6)):
+def fig_6(size=(12.8, 9.6)):
     """ Cartoon of Papatea thrust block. """
     pass
 
-def fig_8(size=(12, 8)):
+def fig_7(size=(12, 8)):
     """
     Along-strike cross-section with aftershock density and slip models
 
@@ -1246,7 +1388,7 @@ def fig_8(size=(12, 8)):
         labels=["Aftershock density", "Ulrich et al. slip model"])
 
     for _format in PLOT_FORMATS:
-        x_section.savefig(f"{OUT}/Figure_8.{_format}")
+        x_section.savefig(f"{OUT}/Figure_7.{_format}")
 
     return x_section
 
