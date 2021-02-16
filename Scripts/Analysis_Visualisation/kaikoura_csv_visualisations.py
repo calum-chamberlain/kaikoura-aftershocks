@@ -3,6 +3,7 @@ import numpy as np
 import os
 import copy
 import datetime as dt
+import cartopy.crs as ccrs
 
 from collections import namedtuple
 from eqcorrscan.utils.plotting import freq_mag
@@ -22,6 +23,11 @@ FAULT_FILE = f"{home}/.gmt_data/faults_NZ_WGS84.gmt"
 MAINSHOCK = (-42.623531, 172.988788, 12.917969)  # My NLL location.
 
 DEFAULT_XSECTIONS = {"1": [(-42.76, 172.824), (-41.572, 174.637)]}
+
+NZTM = ccrs.TransverseMercator(
+    central_longitude=173.0, central_latitude=0.0, 
+    false_easting=1600000, false_northing=10000000, 
+    scale_factor=0.9996)
 
 def _get_grid_xsections(
     strike: float = 318,
@@ -581,6 +587,7 @@ def plot_locations(
             projection = ccrs.PlateCarree
         else:
             projection = "local"
+            # projection = NZTM
         proj_kwargs = dict()
         figsize = (10, 10.5)
 

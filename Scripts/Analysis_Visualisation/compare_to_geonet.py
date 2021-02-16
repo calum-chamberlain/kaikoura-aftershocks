@@ -160,6 +160,8 @@ def compare_to_geonet():
                 matched_quakes.update(
                     {geonet_id: dict(delta=delta, dist=dist, my_id=i)})
         bar.update(i)
+    bar.finish()
+
 
 
     geonet_mags = [
@@ -169,7 +171,20 @@ def compare_to_geonet():
                for my_index in matched_quakes.values()]
     magnitude_plot(geonet_mags=geonet_mags, my_mags=my_mags, 
                    geonet_ids=list(matched_quakes.keys()), 
-                   my_ids=[item["my_id"] for item in matched_quakes.values()])  
+                   my_ids=[item["my_id"] for item in matched_quakes.values()])
+    matplot_mag_plot(geonet_mags=geonet_mags, my_mags=my_mags)
+
+
+def matplot_mag_plot(geonet_mags, my_mags):
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+
+    ax.scatter(geonet_mags, my_mags)
+    ax.set_xlabel("GeoNet preferred_magnitude")
+    ax.set_ylabel("Local Magnitude")
+    ax.grid("on")
+    plt.show()
 
 
 def magnitude_plot(geonet_mags: list, my_mags: list, geonet_ids: list, my_ids: list):

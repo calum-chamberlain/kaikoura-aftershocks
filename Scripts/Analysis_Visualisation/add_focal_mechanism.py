@@ -56,8 +56,9 @@ def main(
     infile: str = "../../Locations/GrowClust_located_magnitudes_callibrated.csv",
     max_err: float = 30.0,
 ):
+    
     earthquakes = pd.read_csv(infile, parse_dates=["time"])
-
+    print("Read in quakes")
     fm_db = pd.read_csv(FM_FILE, dtype={"eq": str})
 
     nll_files = {
@@ -150,8 +151,9 @@ def main(
     earthquakes["Slip style"] = slip_style
 
     earthquakes.to_csv(
-        "../../Locations/GrowClust_located_magnitudes_callibrated_focal_mechanisms.csv")
+        "../../Locations/GriowClust_located_magnitudes_callibrated_focal_mechanisms.csv")
+    print("Written FM file")
 
 
-if __name__ == "__main__()":
+if __name__ == "__main__":
     main()

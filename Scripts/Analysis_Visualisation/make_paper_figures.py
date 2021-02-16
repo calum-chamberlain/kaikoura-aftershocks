@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import datetime as dt
 from typing import Tuple, List
+import cartopy.crs as ccrs
 
 from kaikoura_csv_visualisations import (
     plot_locations, get_kaikoura_faults, get_williams_contours, read_faults,
@@ -41,6 +42,11 @@ MAINSHOCK_TIME -= dt.timedelta(seconds=30)
 
 OUT = f"{HOME}/Dropbox/Current_projects/Kaikoura_afterslip/Plots/Paper_figures"
 PLOT_FORMATS = ("png", "svg", "pdf")
+
+NZTM = ccrs.TransverseMercator(
+    central_longitude=173.0, central_latitude=0.0, 
+    false_easting=1600000, false_northing=10000000, 
+    scale_factor=0.9996)
 
 plt.style.use("default")
 
@@ -146,7 +152,8 @@ def plot_map_and_section(
     proj_kwargs['central_latitude'] = lat_0
     proj_kwargs['central_longitude'] = lon_0
     proj_kwargs['standard_parallels'] = [lat_0, lat_0]
-    proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    # proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    proj = NZTM
 
     map_ax = fig.add_subplot(gs[0:12, :], projection=proj)
     
@@ -343,7 +350,8 @@ def fig_1(size=(10, 10)):
     proj_kwargs['central_latitude'] = lat_0
     proj_kwargs['central_longitude'] = lon_0
     proj_kwargs['standard_parallels'] = [lat_0, lat_0]
-    proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    # proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    proj = NZTM
 
     map_ax = fig.add_axes([ax_x0, ax_y0, ax_width, ax_height],
                           projection=proj)
@@ -763,7 +771,8 @@ def fig_5(size=(7, 16)):
     proj_kwargs['central_latitude'] = lat_0
     proj_kwargs['central_longitude'] = lon_0
     proj_kwargs['standard_parallels'] = [lat_0, lat_0]
-    proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    # proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    proj = NZTM
 
     map_ax = fig.add_subplot(gs[0:11, :], projection=proj)
     
@@ -991,6 +1000,7 @@ def fig_6(size=(7, 16)):
     proj_kwargs['central_longitude'] = lon_0
     proj_kwargs['standard_parallels'] = [lat_0, lat_0]
     proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    proj = NZTM
 
     map_ax = fig.add_subplot(gs[0:11, :], projection=proj)
     
