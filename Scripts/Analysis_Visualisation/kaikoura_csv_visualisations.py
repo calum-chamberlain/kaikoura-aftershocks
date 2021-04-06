@@ -626,9 +626,9 @@ def plot_locations(
     if logarithmic_color:
         norm = LogNorm(vmin=min(colors), vmax=max(colors))
     elif color_by == "depth":
-        norm = Normalize(vmin=min(colors), vmax=20.0)
+        norm = Normalize(vmin=0.0, vmax=20.0)
         colormap = copy.copy(plt.get_cmap(colormap))
-        colormap.set_over(color="k")
+        colormap.set_over(color="lime")
     elif color_by == "rake":
         norm = Normalize(vmin=-180, vmax=180)
         colormap = rake_cmap()
@@ -1205,6 +1205,7 @@ def distance_time_plot(
     colormap: str = "plasma_r",
     size: float = 1.0,
     dip_plot: bool = False,
+    plot_mainshock: bool = True,
     fig = None, ax = None,
 ):
     import matplotlib.pyplot as plt
@@ -1301,9 +1302,9 @@ def distance_time_plot(
 
     starttime = starttime or min(times)
 
-    norm = Normalize(vmin=min(z), vmax=20.0)
+    norm = Normalize(vmin=0.0, vmax=20.0)
     colormap = copy.copy(plt.get_cmap(colormap))
-    colormap.set_over(color="k")
+    colormap.set_over(color="lime")
 
     size = size or np.array(mags) ** 2
 
@@ -1312,9 +1313,10 @@ def distance_time_plot(
         mainshock.time = (mainshock.time - starttime).total_seconds()
     mappable = ax.scatter(times, y, c=z, s=size, 
                           cmap=colormap, norm=norm)
-    ax.scatter(
-        mainshock.time, mainshock.y, 
-        marker="*", facecolor="gold", edgecolor="k", s=200.0)
+    if plot_mainshock:
+        ax.scatter(
+            mainshock.time, mainshock.y, 
+            marker="*", facecolor="gold", edgecolor="k", s=200.0)
     if logx:
         ax.set_xscale('log')
         ax.set_xlabel(f"Seconds from {starttime}")

@@ -6,8 +6,12 @@ from typing import Tuple, List
 import cartopy.crs as ccrs
 import rasterio
 import pyproj
+import copy
+from matplotlib.colors import Normalize
 
 from rasterio.mask import mask
+
+from cjc_utilities.animator.animator import _blank_map
 
 from kaikoura_csv_visualisations import (
     plot_locations, get_kaikoura_faults, get_williams_contours, read_faults,
@@ -117,6 +121,7 @@ def plot_topography(
     cmap: str = "Greys",
     clip: float = None,
     vertical_exageration = 0.1,
+    hillshade: bool = True,
 ):
     import xarray as xr
     from rasterio.warp import transform
@@ -133,22 +138,22 @@ def plot_topography(
     dem = xr.open_rasterio("clipped_dem.tif")
 
     # Work out the size of the DEM
-    # ny, nx = len(dem['y']), len(dem['x'])
+    ny, nx = len(dem['y']), len(dem['x'])
 
-    # # Make a grid of nx, ny points
-    # x, y = np.meshgrid(dem['x'], dem['y'])
+    # Make a grid of nx, ny points
+    x, y = np.meshgrid(dem['x'], dem['y'])
 
-    # # Make a transformer to go from the x, y co-ordinate system to latitude and longitude
-    # lon, lat = transform(dem.crs, {'init': 'EPSG:4326'},
-    #     x.flatten(), y.flatten())
+    # Make a transformer to go from the x, y co-ordinate system to latitude and longitude
+    lon, lat = transform(dem.crs, {'init': 'EPSG:4326'},
+        x.flatten(), y.flatten())
 
-    # # Reshape the arrays back into the grid (this gets lost while transforming)
-    # lon = np.asarray(lon).reshape((ny, nx))
-    # lat = np.asarray(lat).reshape((ny, nx))
+    # Reshape the arrays back into the grid (this gets lost while transforming)
+    lon = np.asarray(lon).reshape((ny, nx))
+    lat = np.asarray(lat).reshape((ny, nx))
 
-    # # Add the longitude and latitude values into the DEM Xarray
-    # dem.coords['lon'] = (('y', 'x'), lon)
-    # dem.coords['lat'] = (('y', 'x'), lat)
+    # Add the longitude and latitude values into the DEM Xarray
+    dem.coords['lon'] = (('y', 'x'), lon)
+    dem.coords['lat'] = (('y', 'x'), lat)
 
     # We want to make sure everything without data is masked
     dem = dem.where(dem != dem.nodatavals, drop=True)
@@ -173,11 +178,12 @@ def plot_topography(
         dem_proj = NZTM
     else:
         dem_proj = ccrs.epsg(dem.crs.split(":")[-1])
-    map_ax.pcolorfast(
-        dem.x, dem.y, hillshade, transform=dem_proj)
-
-    # dem.plot(ax=map_ax, x='lon', y='lat', transform=ccrs.PlateCarree(),
-    #          cmap=cmap, add_colorbar=False)
+    if hillshade:
+        map_ax.pcolorfast(
+            dem.x, dem.y, hillshade, transform=dem_proj)
+    else:
+        dem.plot(ax=map_ax, x='lon', y='lat', transform=ccrs.PlateCarree(),
+            cmap=cmap, add_colorbar=False, rasterized=True)
     return
 
 def plot_subduction_zone(
@@ -285,8 +291,8 @@ def plot_map_and_section(
     proj_kwargs['central_latitude'] = lat_0
     proj_kwargs['central_longitude'] = lon_0
     proj_kwargs['standard_parallels'] = [lat_0, lat_0]
-    # proj = ccrs.AlbersEqualArea(**proj_kwargs)
-    proj = NZTM
+    proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    # proj = NZTM
 
     map_ax = fig.add_subplot(gs[0:12, :], projection=proj)
     
@@ -404,6 +410,7 @@ def plot_map_and_section(
 
     # Put the mainshock mechanism on
     if mainshock:
+        plot_mainshock = True
         mainshock_mask = earthquakes.magnitude == earthquakes.magnitude.max()
         mainshock = earthquakes[mainshock_mask].sort_values(
             "magnitude", ignore_index=True)
@@ -418,6 +425,8 @@ def plot_map_and_section(
         map_ax.plot(
             (lon, lon - 0.03), (lat, lat + 0.03), "k", zorder=4,
             transform=ccrs.PlateCarree())
+    else:
+        plot_mainshock = False
 
     # Plot x-section line
     name, points = section, CROSS_SECTIONS[section]
@@ -427,10 +436,6 @@ def plot_map_and_section(
                 transform=ccrs.PlateCarree(), linestyle="--")
 
     # Plot x-section
-    if mainshock:
-        plot_mainshock = True
-    else:
-        plot_mainshock = False
     fig = plot_x_section(
         earthquakes=relocated, start_latitude=CROSS_SECTIONS[section][0][0],
         start_longitude=CROSS_SECTIONS[section][0][1],
@@ -761,6 +766,7 @@ def fig_2(size=(10, 10)):
 
 def fig_3(size=(9, 6)):
     """ Completeness and space-time. """
+    # TODO: Zoom around Kaikoura
     mag_time = pd.read_csv(
         "Moving_mc.csv", parse_dates=["origintime", "window_median"])
 
@@ -791,7 +797,15 @@ def fig_3(size=(9, 6)):
         end_latitude=CROSS_SECTIONS["A"][1][0],
         end_longitude=CROSS_SECTIONS["A"][1][1],
         max_depth=50.0, swath_half_width=200.0, dip=90.0,
-        colormap="plasma_r", ax=space_time_ax)
+        colormap="plasma_r", ax=space_time_ax, plot_mainshock=False)
+
+    # TODO: Plot on large earthquakes
+    for earthquake in large_earthquakes:
+        mainshock = Geographic(
+            latitude=earthquake[0], longitude=earthquake[1], 
+            depth=earthquake[2], time=earthquake.time, 
+            magnitude=earthquake.magnitude).to_xyz(
+                origin=origin, strike=strike, dip=90.0)
     
     mc_ax.set_xlim(earthquakes.origintime.min(), earthquakes.origintime.max())
 
@@ -913,8 +927,8 @@ def fig_8(size=(7, 16)):
     proj_kwargs['central_latitude'] = lat_0
     proj_kwargs['central_longitude'] = lon_0
     proj_kwargs['standard_parallels'] = [lat_0, lat_0]
-    # proj = ccrs.AlbersEqualArea(**proj_kwargs)
-    proj = NZTM
+    proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    # proj = NZTM
 
     map_ax = fig.add_subplot(gs[0:11, :], projection=proj)
     
@@ -1142,7 +1156,7 @@ def fig_5(size=(7, 16)):
     proj_kwargs['central_longitude'] = lon_0
     proj_kwargs['standard_parallels'] = [lat_0, lat_0]
     proj = ccrs.AlbersEqualArea(**proj_kwargs)
-    proj = NZTM
+    # proj = NZTM
 
     map_ax = fig.add_subplot(gs[0:11, :], projection=proj)
     
@@ -1240,8 +1254,8 @@ def fig_5(size=(7, 16)):
     scale_bar(map_ax, (0.85, 0.05), scale_bar_length, angle=0)
     scale_bar(map_ax, (0.85, 0.05), scale_bar_length, angle=90)
 
-    handles = [f_line, contours.collections[0], ck_st_handle]
-    labels = ["Active Faults", "Williams et al. Interface", "Cook Strait earthquakes"]
+    handles = [f_line, contours.collections[0]]
+    labels = ["Active Faults", "Williams et al. Interface"]
     if kaik_f_line:
         handles.append(kaik_f_line)
         labels.append("Surface Rupture")
