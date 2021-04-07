@@ -948,6 +948,7 @@ def plot_x_section(
     endtime: dt.datetime = None,
     logarithmic_color: bool = False,
     size: float = 0.2,
+    magnitude_scale: bool = False,
     colormap: str = "plasma_r",
     color_by: str = "time",
     plot_mainshock: bool = False,
@@ -1033,6 +1034,15 @@ def plot_x_section(
     scatters = ax.scatter(y, z, s=size, c=colors, alpha=alpha, cmap=colormap, 
                           rasterized=True, norm=norm)
 
+    if magnitude_scale:
+        magnitudes = np.array([1, 3, 5])  # Magnitudes to plot sizes for
+        mag_scale = ax.scatter(
+            -10 * np.ones(len(magnitudes)), -10 * np.ones(len(magnitudes)), 
+            s=magnitudes **2, alpha=1.0, color="k", rasterized=True)
+        scatter_labels = [f"ML {m}" for m in magnitudes]
+        scatter_handles, _ = mag_scale.legend_elements(prop="sizes", num=magnitudes ** 2)
+        ax.legend(handles=scatter_handles, labels=scatter_labels)
+
     # Plot mainshock
     if plot_mainshock:
         mainshock = Geographic(
@@ -1068,7 +1078,7 @@ def plot_x_section(
     if len(interface_points) > 0:
         interface_x, interface_y, interface_z = zip(*[
             (loc.x, loc.y, loc.z) for loc in interface_points])
-        ax.plot(interface_y, interface_z, color="k", linestyle="dashed")
+        ax.plot(interface_y, interface_z, color="k") #, linestyle="dashed")
 
     if focal_mechanisms:
         _cmap = plt.get_cmap(colormap)
@@ -1206,9 +1216,10 @@ def distance_time_plot(
     size: float = 1.0,
     dip_plot: bool = False,
     plot_mainshock: bool = True,
-    fig = None, ax = None,
+    fig = None, ax = None, colorbar = None,
 ):
     import matplotlib.pyplot as plt
+    from matplotlib.colorbar import ColorbarBase
     from scipy.interpolate import interp2d
     from math import atan, degrees
     from cjc_utilities.coordinates.coordinates import Location, Geographic
@@ -1327,10 +1338,14 @@ def distance_time_plot(
     if dip_plot:
         ax.invert_yaxis()
 
-    cbar = fig.colorbar(mappable, ax=ax,
-                        orientation="horizontal", norm=norm)
-    cbar.set_label(cbar_label)
-
+    if colorbar is None:
+        cbar = fig.colorbar(mappable, ax=ax,
+                            orientation="horizontal", norm=norm)
+        cbar.set_label(cbar_label)
+    elif isinstance(colorbar, plt.Axes):
+        cbar = ColorbarBase(
+            colorbar, norm=norm, cmap=colormap, orientation='horizontal')
+        cbar.set_label(cbar_label)
     return fig
 
 

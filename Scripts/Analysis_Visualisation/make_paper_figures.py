@@ -300,7 +300,7 @@ def plot_map_and_section(
     colors = depths
     norm = Normalize(vmin=0.0, vmax=20.0)
     colormap = copy.copy(plt.get_cmap("plasma_r"))
-    # colormap.set_over(color="k")
+    colormap.set_over(color="lime")
 
     fig, map_ax, cbar_ax, cb = _blank_map(
         lats=lats, lons=lons, color=colors, projection="local", 
@@ -308,10 +308,18 @@ def plot_map_and_section(
         proj_kwargs={}, norm=norm, continent_fill_color="0.65",
         water_fill_color="0.9", fig=fig, map_ax=map_ax, cm_ax=cbar_ax)
 
-    map_ax.scatter(
+    mappable_locs = map_ax.scatter(
         lons, lats, marker="o", s=sizes, c=colors, zorder=10, alpha=0.9,
         cmap=colormap, transform=ccrs.PlateCarree(), rasterized=True,
         norm=norm)
+
+    # Add a legend
+    magnitudes = [2, 3, 4, 5, 6]  # Magnitudes to plot sizes for
+
+    scatter_handles, labels = mappable_locs.legend_elements(
+        "sizes", num=[mag ** 2 for mag in magnitudes])
+    scatter_labels = [f"ML {m}" for m in magnitudes]
+    # _ = ax.legend(handles=handles, labels=labels, title="Magnitude")
 
     if MAINSHOCK[0] <= max_latitude and MAINSHOCK[0] >= min_latitude and MAINSHOCK[1] <= max_longitude and MAINSHOCK[1] >= min_longitude:
         mainshock = map_ax.scatter(
@@ -404,6 +412,9 @@ def plot_map_and_section(
     if kaik_f_line:
         handles.append(kaik_f_line)
         labels.append("Surface Rupture")
+
+    handles.extend(scatter_handles)
+    labels.extend(scatter_labels)
 
     map_ax.legend(handles=handles, labels=labels, framealpha=1.0, 
                   loc="upper left").set_zorder(10000)
@@ -766,14 +777,25 @@ def fig_2(size=(10, 10)):
 
 def fig_3(size=(9, 6)):
     """ Completeness and space-time. """
-    # TODO: Zoom around Kaikoura
+    from collections import namedtuple
+    from cjc_utilities.coordinates.coordinates import Geographic
+    from math import degrees, atan
+    import matplotlib.dates as mdates
+
     mag_time = pd.read_csv(
         "Moving_mc.csv", parse_dates=["origintime", "window_median"])
 
     fig = plt.figure(figsize=size, constrained_layout=True)
-    gs = plt.GridSpec(nrows=4, ncols=1, hspace=0.05, figure=fig)
-    mc_ax = fig.add_subplot(gs[0:2, :])
-    space_time_ax = fig.add_subplot(gs[2:4, :], sharex=mc_ax)
+    gs = plt.GridSpec(nrows=5, ncols=4, hspace=0.05, figure=fig)
+    mc_ax = fig.add_subplot(gs[0:2, 0:3])
+    space_time_ax = fig.add_subplot(gs[2:4, 0:3], sharex=mc_ax)
+    cbar_ax = fig.add_subplot(gs[4, :])
+
+    zoom_start, zoom_end = (
+        MAINSHOCK_TIME - dt.timedelta(days=1), 
+        MAINSHOCK_TIME + dt.timedelta(days=14))
+    mc_zoom = fig.add_subplot(gs[0:2, 3:], sharey=mc_ax)
+    space_time_zoom = fig.add_subplot(gs[2:4, 3:], sharex=mc_zoom, sharey=space_time_ax)
     
     # Plot catalogue completeness
     mags = mc_ax.scatter(
@@ -797,20 +819,122 @@ def fig_3(size=(9, 6)):
         end_latitude=CROSS_SECTIONS["A"][1][0],
         end_longitude=CROSS_SECTIONS["A"][1][1],
         max_depth=50.0, swath_half_width=200.0, dip=90.0,
-        colormap="plasma_r", ax=space_time_ax, plot_mainshock=False)
+        colormap="plasma_r", ax=space_time_ax, plot_mainshock=False,
+        colorbar=cbar_ax)
+
+    for ax in (mc_ax, space_time_ax):
+        for x in (zoom_start, zoom_end):
+            ax.axvline(x, 0, 1, color="k", linestyle="--", zorder=-1)
 
     # TODO: Plot on large earthquakes
+    origin = Geographic(
+        latitude=CROSS_SECTIONS["A"][0][0], longitude=CROSS_SECTIONS["A"][0][1],
+        depth=0.0)
+    start = origin.to_xyz(origin=origin, strike=0, dip=90)
+    assert start.x == 0.0 and start.y == 0.0 and start.z == 0.0
+    end = Geographic(latitude=CROSS_SECTIONS["A"][1][0], longitude=CROSS_SECTIONS["A"][1][1], 
+                     depth=0.0).to_xyz(origin=origin, strike=0, dip=90)
+    length = ((end.x - start.x) ** 2 + (end.y - start.y) ** 2) ** .5
+    assert length > 0, "Start and end are the same"
+    
+    if end.x > 0 and end.y > 0:
+        strike = degrees(atan(end.x / end.y))
+    elif end.x > 0 and end.y < 0:
+        strike = 90 + degrees(atan(abs(end.y) / end.x))
+    elif end.x < 0 and end.y < 0:
+        strike = 180 + degrees(atan(abs(end.x) / abs(end.y)))
+    elif end.x < 0 and end.y > 0:
+        strike = 270 + degrees(atan(end.y / abs(end.x)))
+    # Cases at compass points
+    elif end.x > 0 and end.y == 0:
+        strike = 90.0
+    elif end.x == 0 and end.y > 0:
+        strike = 0.0
+    elif end.x < 0 and end.y == 0:
+        strike = 270.0
+    elif end.x == 0 and end.y < 0:
+        strike = 180.0
+    else:
+        raise NotImplementedError("Could not calculate strike")
+
+    EQ = namedtuple(
+        "EQ", ("latitude", "longitude", "depth", "magnitude", "time", "name"))
+    large_earthquakes = [
+        EQ(MAINSHOCK[0], MAINSHOCK[1], MAINSHOCK[2], 7.8, MAINSHOCK_TIME, "Kaikoura"),
+        EQ(-41.6, 174.32, 16, 6.5, dt.datetime(2013, 7, 21, 5, 9, 30), "Cook Strait"),
+        EQ(-41.4, 174.16, 7, 6.6, dt.datetime(2013, 8, 16, 2, 31, 5), "Lake Grassmere"),
+    ]
     for earthquake in large_earthquakes:
         mainshock = Geographic(
-            latitude=earthquake[0], longitude=earthquake[1], 
-            depth=earthquake[2], time=earthquake.time, 
+            latitude=earthquake.latitude, longitude=earthquake.longitude, 
+            depth=earthquake.depth, time=earthquake.time, 
             magnitude=earthquake.magnitude).to_xyz(
                 origin=origin, strike=strike, dip=90.0)
-    
-    mc_ax.set_xlim(earthquakes.origintime.min(), earthquakes.origintime.max())
+        space_time_ax.scatter(
+            mainshock.time, mainshock.y, 
+            marker="*", facecolor="gold", edgecolor="k", s=200.0)
 
-    mc_ax.grid()
-    space_time_ax.grid()
+    # Plot zooms
+    zoom_filter = mag_time.origintime >= zoom_start
+    zoom_filter = np.logical_and(zoom_filter, mag_time.origintime <= zoom_end)
+    mag_time_zoom = mag_time[zoom_filter]
+    mags = mc_zoom.scatter(
+        mag_time_zoom.origintime, mag_time_zoom.magnitude, color="darkblue", 
+        s=0.5, rasterized=True)
+    mc_masked = mag_time_zoom.mc_max_curv.to_numpy()
+    mc_masked[pd.isna(mag_time_zoom.bvalues)] = np.nan
+    completeness, = mc_zoom.step(
+        mag_time_zoom["origintime"], mc_masked, color="red", 
+        label="$M_C$", where="post")
+    
+    # Plot space and time
+    zoom_filter = earthquakes.origintime >= zoom_start
+    zoom_filter = np.logical_and(zoom_filter, earthquakes.origintime <= zoom_end)
+    earthquakes = earthquakes[zoom_filter]
+    fig = distance_time_plot(
+        earthquakes=earthquakes, start_latitude=CROSS_SECTIONS["A"][0][0],
+        start_longitude=CROSS_SECTIONS["A"][0][1],
+        end_latitude=CROSS_SECTIONS["A"][1][0],
+        end_longitude=CROSS_SECTIONS["A"][1][1],
+        max_depth=50.0, swath_half_width=200.0, dip=90.0,
+        colormap="plasma_r", ax=space_time_zoom, plot_mainshock=False,
+        colorbar=False)
+
+    for earthquake in large_earthquakes:
+        mainshock = Geographic(
+            latitude=earthquake.latitude, longitude=earthquake.longitude, 
+            depth=earthquake.depth, time=earthquake.time, 
+            magnitude=earthquake.magnitude).to_xyz(
+                origin=origin, strike=strike, dip=90.0)
+        space_time_zoom.scatter(
+            mainshock.time, mainshock.y, 
+            marker="*", facecolor="gold", edgecolor="k", s=200.0)
+
+    for ax in (space_time_zoom, mc_zoom):
+        for tk in ax.get_yticklabels():
+            tk.set_visible(False)
+    for ax in (mc_ax, mc_zoom):
+        for tk in ax.get_xticklabels():
+            tk.set_visible(False)
+    
+    space_time_zoom.set_ylabel("")
+
+    mc_zoom.set_xlim(zoom_start, zoom_end)
+    mc_ax.set_xlim(mag_time.origintime.min(), mag_time.origintime.max())
+
+    for ax in (mc_ax, space_time_ax, mc_zoom, space_time_zoom):
+        ax.grid()
+
+    for ax in (space_time_zoom, space_time_ax):
+        locator = mdates.AutoDateLocator(minticks=3, maxticks=12)
+        formatter = mdates.ConciseDateFormatter(locator)
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
+
+    space_time_zoom.set_xlabel("")
+    cbar_ax.set_aspect(0.025)
+
+    plt.setp(mc_zoom.xaxis.get_offset_text(), visible=False)
 
     # fig.subplots_adjust(hspace=0, wspace=0.5)
 
@@ -819,7 +943,7 @@ def fig_3(size=(9, 6)):
     return
 
 
-def fig_4(size=(9, 15)):
+def fig_4(size=(9, 13)):
     """ Nucleation, 2 panels of map and along-strike cross-section """
 
     earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
@@ -1083,7 +1207,7 @@ def fig_8(size=(7, 16)):
     return fig
 
 
-def fig_5(size=(7, 16)):
+def fig_5(size=(7, 15)):
     """
     Point Keen cross-section with faults and FM
 
@@ -1162,9 +1286,9 @@ def fig_5(size=(7, 16)):
     
     sizes = quakes.magnitude ** 2
     colors = depths
-    norm = Normalize(vmin=min(colors), vmax=20.0)
+    norm = Normalize(vmin=0, vmax=20.0)
     colormap = copy.copy(plt.get_cmap("plasma_r"))
-    colormap.set_over(color="k")
+    colormap.set_over(color="lime")
 
     fig, map_ax, cbar_ax, cb = _blank_map(
         lats=lats, lons=lons, color=colors, projection="local", 
@@ -1172,14 +1296,19 @@ def fig_5(size=(7, 16)):
         proj_kwargs={}, norm=norm, continent_fill_color="0.65",
         water_fill_color="0.9", fig=fig, map_ax=map_ax, cm_ax=cbar_ax)
 
-    map_ax.scatter(
+    mappable_locs = map_ax.scatter(
         lons, lats, marker="o", s=sizes, c=colors, zorder=7, alpha=0.9,
         cmap=colormap, transform=ccrs.PlateCarree(), rasterized=True,
         norm=norm)
+    magnitudes = [1, 3, 5]  # Magnitudes to plot sizes for
+
+    scatter_handles, labels = mappable_locs.legend_elements(
+        "sizes", num=[mag ** 2 for mag in magnitudes])
+    scatter_labels = [f"ML {m}" for m in magnitudes]
 
     # Plot mechanisms
-    # fm_mask = np.logical_and(quakes.rake > 45, quakes.rake < 125)
-    fm_mask = np.ones(len(quakes), dtype=np.bool)
+    fm_mask = np.logical_and(quakes.rake > 45, quakes.rake < 125)
+    # fm_mask = np.ones(len(quakes), dtype=np.bool)
     s, d, r, lat, lon, _depth = (
             quakes[fm_mask].strike.to_list(), 
             quakes[fm_mask].dip.to_list(),
@@ -1194,7 +1323,7 @@ def fig_5(size=(7, 16)):
         red, green, blue, _alpha = colormap(norm(color))
         plot_fm(strike=s[i], dip=d[i], rake=r[i],
                 latitude=lat[i], longitude=lon[i], zorder=20, axes=map_ax,
-                width=15, color=(red, green, blue), alpha=0.6, 
+                width=25, color=(red, green, blue), alpha=0.6, 
                 rasterize=True)
 
     # Plot Faults
@@ -1255,13 +1384,16 @@ def fig_5(size=(7, 16)):
     scale_bar(map_ax, (0.85, 0.05), scale_bar_length, angle=90)
 
     handles = [f_line, contours.collections[0]]
-    labels = ["Active Faults", "Williams et al. Interface"]
+    labels = ["Active Faults", "Interface"]
     if kaik_f_line:
         handles.append(kaik_f_line)
         labels.append("Surface Rupture")
 
-    fig.legend(handles=handles, labels=labels, framealpha=1.0, 
-               loc="upper left").set_zorder(10000)
+    labels.extend(scatter_labels)
+    handles.extend(scatter_handles)
+
+    map_ax.legend(handles=handles, labels=labels, framealpha=1.0, 
+                  loc="upper left").set_zorder(10000)
 
     # Plot x-section line
     name, points = section, CROSS_SECTIONS[section]
@@ -1309,6 +1441,10 @@ def fig_7(size=(12, 8)):
     Along-strike cross-section with aftershock density and slip models
 
     """
+    from cjc_utilities.coordinates.coordinates import Location, Geographic
+    from cjc_utilities.coordinates.extract_cross_section import get_plane
+    from kaikoura_csv_visualisations import get_origin_strike_length
+
     earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
     earthquakes = earthquakes.rename(columns={"time": "origintime"})
     relocated = earthquakes[earthquakes.station_count == 0.0]
@@ -1320,11 +1456,52 @@ def fig_7(size=(12, 8)):
         end_longitude=points[1][1], max_depth=40.0,
         swath_half_width=30.0, dip=90.0, starttime=MAINSHOCK_TIME,
         endtime=None, logarithmic_color=True, size=None, colormap=TIME_COLORMAP,
-        color_by="timestamp", plot_mainshock=True)
+        color_by="timestamp", plot_mainshock=True, magnitude_scale=True)
     x_section.set_size_inches(size)
-
-    # Add subplot and adjust
     x_section_ax = x_section.gca()
+
+    # Plot Donna's Qs
+    qs = pd.read_csv(
+        "../../Locations/NonLinLoc_NZW3D_2.2/NZW3D_2.2/Qsnzw2p2xyzltln.tbl.txt",
+        header=1, delim_whitespace=True)
+    x = 93
+    qs_section = qs[qs["x(km)"] == x]
+    qs_lats, qs_lons, qs_depths, qs_vals = (
+        qs_section.Latitude.to_list(), qs_section.Longitude.to_list(),
+        qs_section["Depth(km_BSL)"].to_list(), qs.Qs.to_list())
+
+    # Project into plane
+    origin, strike, length = get_origin_strike_length(
+        start_latitude=points[0][0], start_longitude=points[0][1],
+        end_latitude=points[1][0], end_longitude=points[1][1])
+
+    projected_qs_points = [
+        Geographic(latitude=lat, longitude=lon, depth=depth).to_xyz(
+            origin=origin, strike=strike, dip=90) 
+        for lat, lon, depth in zip(qs_lats, qs_lons, qs_depths)]
+    
+    qs_y = np.array([loc.y for loc in projected_qs_points])
+    
+    qs_depths = np.array(list(set(qs_section["Depth(km_BSL)"])))
+    qs_dists = np.array(list(set(qs_y)))
+    qs_depths.sort()
+    qs_dists.sort()
+
+    qs_vals = np.ones((len(qs_dists), len(qs_depths))) * np.nan
+    for i, _x in enumerate(qs_dists): 
+        for j, _depth in enumerate(qs_depths):
+            val = qs_section["Qs"][np.logical_and(
+                qs_section["Depth(km_BSL)"] == _depth, 
+                qs_y == _x)].to_list()
+            if len(val):
+                qs_vals[i, j] = val[0]
+    
+    contours = x_section_ax.contour(
+        qs_dists, qs_depths, qs_vals.T, levels=[200], alpha=0.8, 
+        linestyles="dashed", colors="purple")
+    # x_section_ax.clabel(contours, inline=False, fontsize=10)
+
+    # Add subplot and adjust    
     density_ax = x_section.add_subplot(3, 1, 1, sharex=x_section_ax)
     x_section.subplots_adjust(hspace=0.0)
     plt.setp(density_ax.xaxis.get_ticklabels(), visible=False)
@@ -1341,19 +1518,31 @@ def fig_7(size=(12, 8)):
         dip=90)
 
     y = np.array([loc.y for loc in projected])
+    mags = np.array([loc.magnitude for loc in projected])
+
+    nan_mask = ~np.isnan(mags)
+    y = y[nan_mask]
+    mags = mags[nan_mask]
+    # Convert to moment
+    moment = 10 ** ((mags + 10.73) * 1.5)
     # Compute density in bins
-    bin_width = .5
+    bin_width = 1.0
     bin_mid_points = np.arange(bin_width / 2, y.max(), bin_width)
     quake_density = np.zeros_like(bin_mid_points)
     for i in range(len(bin_mid_points)):
         bin_start = bin_mid_points[i] - (.5 * bin_width)
         bin_end = bin_start + bin_width
-        quake_density[i] = np.logical_and(y < bin_end, y > bin_start).sum()
+        bin_mask = np.logical_and(y < bin_end, y > bin_start)
+        # quake_density[i] = np.logical_and(y < bin_end, y > bin_start).sum()
+        quake_density[i] = np.sum(moment[bin_mask])
 
     quake_handle, = density_ax.plot(
         bin_mid_points, quake_density, label="Earthquake density")
-    density_ax.set_ylim(0, quake_density.max() + 10)
-    density_ax.set_ylabel("Number of aftershocks in bin")
+    # density_ax.set_ylim(np.float64(10 ** 18), np.float64(10 ** 26))
+    # density_ax.set_ylabel("Number of aftershocks in bin")
+    # density_ax.set_yscale("log")
+    density_ax.set_ylim(0, quake_density.max() + 100)
+    density_ax.set_ylabel("Moment release in bin (dyn-cm)")
 
     # Plot Ulrich slip model
     ulrich_model = pd.read_csv(
@@ -1392,14 +1581,15 @@ def fig_7(size=(12, 8)):
             ulrich_slip_density[i] = slip[mask].sum() / (masked_z.max())
 
     slip_ax = density_ax.twinx()
+    slip_ax.set_yscale("linear")
     ulrich_handle, = slip_ax.plot(
         bin_mid_points, ulrich_slip_density, label="Total Slip", color="red")
-    slip_ax.set_ylim((0, 1500))
+    slip_ax.set_ylim((0, 2600))
     slip_ax.set_ylabel("Total slip (m) / total depth (m)")
 
     density_ax.legend(
         handles=[quake_handle, ulrich_handle],
-        labels=["Aftershock density", "Ulrich et al. slip model"])
+        labels=["Aftershock moment density", "Ulrich et al. slip model"])
 
     for _format in PLOT_FORMATS:
         x_section.savefig(f"{OUT}/Figure_7.{_format}")
@@ -1610,15 +1800,17 @@ def plot_donna_qs(
 
     assert x or y, "Requires either an X, or a Y to extract on"
 
+    flip_ax = True
     if fig and not ax:
         ax = fig.gca()
     elif ax and not fig:
         fig = ax.get_figure
+        flip_ax = False
     elif not ax and not fig:
         fig, ax = plt.subplots()
 
     qs = pd.read_csv(
-        "../Locations/NonLinLoc_NZW3D_2.2/NZW3D_2.2/Qsnzw2p2xyzltln.tbl.txt",
+        "../../Locations/NonLinLoc_NZW3D_2.2/NZW3D_2.2/Qsnzw2p2xyzltln.tbl.txt",
         header=1, delim_whitespace=True)
     
     if x:
@@ -1690,8 +1882,9 @@ def plot_donna_qs(
         contours = ax.contour(dist, y, qs_vals.T)
     if label_contours:
         ax.clabel(contours, inline=False, fontsize=10)
-    ax.invert_yaxis()
-    ax.set_ylabel("Depth (km)")
+    if flip_ax:
+        ax.invert_yaxis()
+        ax.set_ylabel("Depth (km)")
     # ax.invert_xaxis()
 
 
