@@ -334,7 +334,6 @@ def filter_earthquakes(
     return quakes
 
 
-
 def calculate_moving_b(
     earthquakes: pd.DataFrame,
     window_size: int = 1000, 
@@ -512,13 +511,13 @@ def rake_cmap(alpha=1):
     N = 256
     vals = np.zeros((N, 4))
     vals[:, 3] = alpha
-    vals[:, 2] = np.linspace(0, 1, N) ** 2
+    vals[:, 2] = np.linspace(0, 1, N) ** 1.0
     blues = vals
     blues_r = blues[::-1]
 
     vals = np.zeros((N, 4))
     vals[:, 3] = alpha
-    vals[:, 0] = np.linspace(0, 1, N) ** 2
+    vals[:, 0] = np.linspace(0, 1, N) ** 1.0
     reds = vals
     reds_r = reds[::-1]
 
@@ -527,7 +526,6 @@ def rake_cmap(alpha=1):
 
 
 
-# TODO: size by m (optional), fault-focus zooms
 def plot_locations(
     earthquakes: pd.DataFrame, 
     color_by: str = "depth",
@@ -1217,6 +1215,7 @@ def distance_time_plot(
     dip_plot: bool = False,
     plot_mainshock: bool = True,
     fig = None, ax = None, colorbar = None,
+    rasterized=False,
 ):
     import matplotlib.pyplot as plt
     from matplotlib.colorbar import ColorbarBase
@@ -1323,7 +1322,7 @@ def distance_time_plot(
         times = [(t - starttime).total_seconds() for t in times]
         mainshock.time = (mainshock.time - starttime).total_seconds()
     mappable = ax.scatter(times, y, c=z, s=size, 
-                          cmap=colormap, norm=norm)
+                          cmap=colormap, norm=norm, rasterized=rasterized)
     if plot_mainshock:
         ax.scatter(
             mainshock.time, mainshock.y, 

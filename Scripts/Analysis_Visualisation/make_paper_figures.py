@@ -38,8 +38,9 @@ CROSS_SECTIONS = {
 }
 REGIONS = {
     "Fig. 4": ((-42.74, 172.75), (-42.4, 173.4)),
-    "Fig. 5": ((-42, 174), (-41.55, 174.5)),
-    "Fig. 6": ((-42.55, 173.25), (-41.96, 174)),
+    "Fig. 8": ((-42, 174), (-41.55, 174.5)),
+    "Fig. 5": ((-42.55, 173.25), (-41.96, 174)),
+    "Snowgrass": ((-42.15, 173.64), (-41.94, 173.88)),
 }
 RELOCATED_EVENTS = "../../Locations/GrowClust_located_magnitudes_callibrated_focal_mechanisms.csv"
 
@@ -775,7 +776,7 @@ def fig_2(size=(10, 10)):
     return    
 
 
-def fig_3(size=(9, 6)):
+def fig_3(size=(12, 7.2)):
     """ Completeness and space-time. """
     from collections import namedtuple
     from cjc_utilities.coordinates.coordinates import Geographic
@@ -813,6 +814,7 @@ def fig_3(size=(9, 6)):
     # Plot space and time
     earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
     earthquakes = earthquakes.rename(columns={"time": "origintime"})
+    earthquakes = earthquakes[earthquakes.station_count == 0.0]
     fig = distance_time_plot(
         earthquakes=earthquakes, start_latitude=CROSS_SECTIONS["A"][0][0],
         start_longitude=CROSS_SECTIONS["A"][0][1],
@@ -820,7 +822,7 @@ def fig_3(size=(9, 6)):
         end_longitude=CROSS_SECTIONS["A"][1][1],
         max_depth=50.0, swath_half_width=200.0, dip=90.0,
         colormap="plasma_r", ax=space_time_ax, plot_mainshock=False,
-        colorbar=cbar_ax)
+        colorbar=cbar_ax, rasterized=True)
 
     for ax in (mc_ax, space_time_ax):
         for x in (zoom_start, zoom_end):
@@ -898,7 +900,7 @@ def fig_3(size=(9, 6)):
         end_longitude=CROSS_SECTIONS["A"][1][1],
         max_depth=50.0, swath_half_width=200.0, dip=90.0,
         colormap="plasma_r", ax=space_time_zoom, plot_mainshock=False,
-        colorbar=False)
+        colorbar=False, rasterized=True)
 
     for earthquake in large_earthquakes:
         mainshock = Geographic(
@@ -939,12 +941,15 @@ def fig_3(size=(9, 6)):
     # fig.subplots_adjust(hspace=0, wspace=0.5)
 
     for _format in PLOT_FORMATS:
-        fig.savefig(f"{OUT}/Figure_3.{_format}")
+        fig.savefig(f"{OUT}/Figure_3.{_format}", dpi=400)
     return
 
 
 def fig_4(size=(9, 13)):
     """ Nucleation, 2 panels of map and along-strike cross-section """
+    from obspy.clients.fdsn import Client
+    from collections import namedtuple
+    from cartopy.mpl.geoaxes import GeoAxesSubplot
 
     earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
     earthquakes = earthquakes.rename(columns={"time": "origintime"})
@@ -954,257 +959,36 @@ def fig_4(size=(9, 13)):
         section="epi")
     fig.subplots_adjust(hspace=0.05, wspace=0.05)
 
+    fake_ori = namedtuple("ori", ("latitude", "longitude", "depth"))
+
+    # Lanza location taken from supplement of Lanza et al. 2019
+    lanza = fake_ori(latitude=-42.624268, longitude=172.948535, depth=15248.0)
+    usgs = Client("USGS").get_events(eventid="us1000778i")[0].preferred_origin()
+    geonet = Client("GEONET").get_events(eventid="2016p858000")[0].preferred_origin()
+
+    # Note Nicol does not provide a location, or catalog at all. What a waste.
+    for ax in fig.axes:
+        if isinstance(ax, GeoAxesSubplot):
+            break
+    
+    for label, loc in zip(["Lanza", "USGS", "GeoNet"], [lanza, usgs, geonet]):
+        ax.scatter(
+            loc.longitude, loc.latitude, marker="*", facecolor="blue", 
+            edgecolor="k", s=200.0, zorder=11, transform=ccrs.PlateCarree())
+        if label == "Lanza":
+            ha = "right"
+            shift = -0.007
+        else:
+            ha = "left"
+            shift = 0.007
+        ax.text(loc.longitude +shift, loc.latitude + .007, label,
+                transform=ccrs.PlateCarree(), zorder=100, va="bottom",
+                ha=ha,
+                bbox=dict(fc="white", boxstyle="round", ec="black"))
+
     for _format in PLOT_FORMATS:
         fig.savefig(f"{OUT}/Figure_4.{_format}")
     return
-
-
-def fig_8(size=(7, 16)):
-    """
-    Cape Campbell sections - illustrate lack of hard stop,
-    illustrate many faults ruptured, show subd-like earthquakes, and similarity
-    to Ck. St. events.
-
-    TODO:
-     - Plot Fault projections
-     - Label faults
-     - Highlight re-invigorated events
-     - Focal Mechanisms for subd like events
-
-    """
-    import copy
-    import cartopy.crs as ccrs
-
-    from obspy.clients.fdsn import Client
-    from matplotlib.colors import Normalize
-    from cjc_utilities.animator.animator import _blank_map
-
-    earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
-    earthquakes = earthquakes.rename(columns={"time": "origintime"})
-
-    bounds = REGIONS["Fig. 5"]
-    section="cape"
-
-    # Get the Cook Strait earthquakes
-    client = Client("GEONET")
-    grassmere = client.get_events(eventid="2013p613797")[0]  # Lake Grassmere
-    ck_st = client.get_events(eventid="2013p543824")[0]  # Cook Strait
-
-    relocated = earthquakes[earthquakes.station_count == 0.0]
-
-    (min_latitude, min_longitude), (max_latitude, max_longitude) = bounds
-    scale_bar_length = 5
-    
-    pad = 0.05
-    map_size = size
-    fig = plt.figure(figsize=map_size)
-
-    gs = fig.add_gridspec(24, 1)
-    
-    cbar_ax = fig.add_subplot(gs[11, :])
-    section_ax = fig.add_subplot(gs[13:, :])
-
-    quakes = filter_earthquakes(
-        relocated, min_longitude=min_longitude, max_longitude=max_longitude,
-        min_latitude=min_latitude, max_latitude=max_latitude)
-
-    quakes = quakes.sort_values(
-        by="origintime", ignore_index=True, ascending=False)
-    
-    lats, lons, depths, times = (
-        quakes.latitude.to_numpy(), quakes.longitude.to_numpy(),
-        quakes.depth.to_numpy() / 1000., quakes.origintime.to_list())
-
-    # Get the projection
-    if min(lons) < -150 and max(lons) > 150:
-        max_lons = max(np.array(lons) % 360)
-        min_lons = min(np.array(lons) % 360)
-    else:
-        max_lons = max(lons)
-        min_lons = min(lons)
-    lat_0 = max(lats) / 2. + min(lats) / 2.
-    lon_0 = max_lons / 2. + min_lons / 2.
-    if lon_0 > 180:
-        lon_0 -= 360
-    deg2m_lat = 2 * np.pi * 6371 * 1000 / 360
-    deg2m_lon = deg2m_lat * np.cos(lat_0 / 180 * np.pi)
-    if len(lats) > 1:
-        height = (max(lats) - min(lats)) * deg2m_lat
-        width = (max_lons - min_lons) * deg2m_lon
-        margin = pad * (width + height)
-        height += margin
-        width += margin
-    else:
-        height = 2.0 * deg2m_lat
-        width = 5.0 * deg2m_lon
-    # Do intelligent aspect calculation for local projection
-    # adjust to figure dimensions
-    w, h = fig.get_size_inches()
-    aspect = w / h
-    aspect *= 1.2
-    if width / height < aspect:
-        width = height * aspect
-    else:
-        height = width / aspect
-
-    proj_kwargs = {}
-    proj_kwargs['central_latitude'] = lat_0
-    proj_kwargs['central_longitude'] = lon_0
-    proj_kwargs['standard_parallels'] = [lat_0, lat_0]
-    proj = ccrs.AlbersEqualArea(**proj_kwargs)
-    # proj = NZTM
-
-    map_ax = fig.add_subplot(gs[0:11, :], projection=proj)
-    
-    sizes = quakes.magnitude ** 2
-    colors = depths
-    norm = Normalize(vmin=min(colors), vmax=20.0)
-    colormap = copy.copy(plt.get_cmap("plasma_r"))
-    colormap.set_over(color="k")
-
-    fig, map_ax, cbar_ax, cb = _blank_map(
-        lats=lats, lons=lons, color=colors, projection="local", 
-        resolution="full", colormap=colormap, figsize=map_size,
-        proj_kwargs={}, norm=norm, continent_fill_color="0.65",
-        water_fill_color="0.9", fig=fig, map_ax=map_ax, cm_ax=cbar_ax)
-
-    map_ax.scatter(
-        lons, lats, marker="o", s=sizes, c=colors, zorder=7, alpha=0.9,
-        cmap=colormap, transform=ccrs.PlateCarree(), rasterized=True,
-        norm=norm)
-
-    # Outline those events prior to Kaikoura
-    pre_kaik_mask = np.array(times) < dt.datetime(2016, 11, 1)
-    map_ax.scatter(
-        lons[pre_kaik_mask], lats[pre_kaik_mask], marker="o", 
-        s=sizes[pre_kaik_mask], c=colors[pre_kaik_mask], zorder=8, alpha=0.9,
-        cmap=colormap, transform=ccrs.PlateCarree(), rasterized=True,
-        norm=norm, edgecolor="k")
-
-    # Plot large eqs
-    for eq, eq_name in [(grassmere, "Lake Grassmere"), (ck_st, "Cook Strait")]:
-        ori = eq.preferred_origin()
-        mag = eq.preferred_magnitude().mag
-        ck_st_handle = map_ax.scatter(
-            ori.longitude, ori.latitude, marker="*", s=5 * (mag ** 2),
-            facecolor="lime", edgecolor="k", zorder=10, alpha=1.0, 
-            transform=ccrs.PlateCarree(), rasterized=True)
-
-    # Plot mechanisms
-    # deep_mask = quakes.depth > 23000
-    # s, d, r, lat, lon, _depth = (
-    #         quakes[deep_mask].strike.to_list(), 
-    #         quakes[deep_mask].dip.to_list(),
-    #         quakes[deep_mask].rake.to_list(),
-    #         quakes[deep_mask].latitude.to_list(),
-    #         quakes[deep_mask].longitude.to_list(),
-    #         quakes[deep_mask].depth.to_list())
-    # for i in range(len(quakes[deep_mask])):
-    #     if np.any(np.isnan((s[i], d[i], r[i]))):
-    #         continue
-    #     color = _depth[i] / 1000.
-    #     red, green, blue, _alpha = colormap(norm(color))
-    #     plot_fm(strike=s[i], dip=d[i], rake=r[i],
-    #             latitude=lat[i], longitude=lon[i], zorder=20, axes=map_ax,
-    #             width=fm_size, color=(red, green, blue), alpha=0.6, 
-    #             rasterize=True)
-
-    # Plot Faults
-    faults = read_faults(
-        min_lat=min_latitude - 2, max_lat=max_latitude + 2,
-        min_lon=min_longitude - 2, max_lon=max_longitude + 2)
-    for fault in faults:
-        flons, flats = zip(*fault)
-        f_line, = map_ax.plot(
-            flons, flats, color="k", linewidth=1.5, zorder=8,
-            transform=ccrs.PlateCarree(), rasterized=True)
-
-    # Plot Kaikoura ruptures
-    try:
-        kaikoura_faults = get_kaikoura_faults()
-    except FileNotFoundError:
-        print("Could not find Kaikoura faults, skipping")
-        kaikoura_faults = None
-    if kaikoura_faults:
-        for fault in kaikoura_faults.values():
-            flons, flats = zip(*fault)
-            kaik_f_line, = map_ax.plot(
-                flons, flats, color="red", linewidth=2.0, zorder=9,
-                transform=ccrs.PlateCarree(), rasterized=True)
-
-    map_ax.set_extent(
-        [min_longitude, max_longitude, min_latitude, max_latitude],
-        crs=ccrs.PlateCarree())
-
-    gl = map_ax.gridlines(
-        draw_labels=True, dms=False, x_inline=False, y_inline=False)
-    gl.right_labels, gl.bottom_labels = False, False
-
-    # Plot subduction contours
-    subd_lats, subd_lons, subd_depths = get_williams_contours()
-    lat_mask, lon_mask = (np.ones_like(subd_lats, dtype=bool), 
-                          np.ones_like(subd_lons, dtype=bool))
-    if min_latitude:
-        lat_mask = np.logical_and(lat_mask, subd_lats >= min_latitude - 0.5)
-    if max_latitude:
-        lat_mask = np.logical_and(lat_mask, subd_lats <= max_latitude + 0.5)
-    if min_longitude:
-        lon_mask = np.logical_and(lon_mask, subd_lons >= min_longitude - 0.5)
-    if max_longitude:
-        lon_mask = np.logical_and(lon_mask, subd_lons <= max_longitude + 0.5)
-
-    subd_lats = subd_lats[lat_mask]
-    subd_lons = subd_lons[lon_mask]
-    subd_depths = subd_depths[lat_mask][:, lon_mask] * -1
-    contours = map_ax.contour(
-        subd_lons, subd_lats, subd_depths, colors="k", linestyles="dashed",
-        transform=ccrs.PlateCarree(), levels=[0, 5, 10, 15, 20, 25, 30, 40, 50],
-        zorder=9)
-    map_ax.clabel(contours, inline=1, fontsize=10, fmt="%i km", zorder=9)
-
-    # Plot scale bar
-    scale_bar(map_ax, (0.85, 0.05), scale_bar_length, angle=0)
-    scale_bar(map_ax, (0.85, 0.05), scale_bar_length, angle=90)
-
-    handles = [f_line, contours.collections[0], ck_st_handle]
-    labels = ["Active Faults", "Williams et al. Interface", "Cook Strait earthquakes"]
-    if kaik_f_line:
-        handles.append(kaik_f_line)
-        labels.append("Surface Rupture")
-
-    fig.legend(handles=handles, labels=labels, framealpha=1.0, 
-               loc="upper left").set_zorder(10000)
-
-    # Plot x-section line
-    name, points = section, CROSS_SECTIONS[section]
-    x_start, x_end = points
-    x_lats, x_lons = [x_start[0], x_end[0]], [x_start[1], x_end[1]]
-    map_ax.plot(x_lons, x_lats, color="cyan", linewidth=3.0, zorder=2,
-                transform=ccrs.PlateCarree(), linestyle="--")
-
-    # Plot x-section
-    fig = plot_x_section(
-        earthquakes=relocated, start_latitude=CROSS_SECTIONS[section][0][0],
-        start_longitude=CROSS_SECTIONS[section][0][1],
-        end_latitude=CROSS_SECTIONS[section][1][0],
-        end_longitude=CROSS_SECTIONS[section][1][1],
-        starttime=MAINSHOCK_TIME,
-        max_depth=30, swath_half_width=5, dip=90.0, colormap="turbo_r",
-        size=None, logarithmic_color=True, color_by="timestamp", fig=fig,
-        plot_mainshock=False, ax=section_ax)
-    
-    # Add on the relevant faults.
-    print("Adding faults computed manually - if you have changed the section line yur fucked.")
-    london = [(16.0, 19.44), (0.0, 10.0)]  # 70 degree dip at dip direction = 115.6, projected onto section at 132.4 degrees
-    needles = [(23.5, 19.9), (0.0, 10.0)]  # 70 Degree dip opposite direction to london
-    section_ax.plot(london[0], london[1], color="k", zorder=5, alpha=0.6)
-    section_ax.plot(needles[0], needles[1], color="r", zorder=5, alpha=0.6)
-
-    fig.subplots_adjust(hspace=1.5)
-    
-    for _format in PLOT_FORMATS:
-        fig.savefig(f"{OUT}/Figure_8.{_format}", dpi=200)
-    return fig
 
 
 def fig_5(size=(7, 15)):
@@ -1215,7 +999,7 @@ def fig_5(size=(7, 15)):
     earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
     earthquakes = earthquakes.rename(columns={"time": "origintime"})
 
-    bounds = REGIONS["Fig. 6"]
+    bounds = REGIONS["Fig. 5"]
     section = "thrust"
 
     relocated = earthquakes[earthquakes.station_count == 0.0]
@@ -1323,7 +1107,7 @@ def fig_5(size=(7, 15)):
         red, green, blue, _alpha = colormap(norm(color))
         plot_fm(strike=s[i], dip=d[i], rake=r[i],
                 latitude=lat[i], longitude=lon[i], zorder=20, axes=map_ax,
-                width=25, color=(red, green, blue), alpha=0.6, 
+                width=25, color=(red, green, blue), alpha=1.0, 
                 rasterize=True)
 
     # Plot Faults
@@ -1435,6 +1219,7 @@ def fig_5(size=(7, 15)):
 def fig_6(size=(12.8, 9.6)):
     """ Cartoon of Papatea thrust block. """
     pass
+
 
 def fig_7(size=(12, 8)):
     """
@@ -1597,6 +1382,254 @@ def fig_7(size=(12, 8)):
     return x_section
 
 
+def fig_8(size=(5.5, 15)):
+    """
+    Cape Campbell sections - illustrate lack of hard stop,
+    illustrate many faults ruptured, show subd-like earthquakes, and similarity
+    to Ck. St. events.
+
+    TODO:
+     - Plot Fault projections
+     - Label faults
+     - Highlight re-invigorated events
+     - Focal Mechanisms for subd like events
+
+    """
+    import copy
+    import cartopy.crs as ccrs
+
+    from obspy.clients.fdsn import Client
+    from matplotlib.colors import Normalize
+    from cjc_utilities.animator.animator import _blank_map
+
+    earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
+    earthquakes = earthquakes.rename(columns={"time": "origintime"})
+
+    bounds = REGIONS["Fig. 8"]
+    section="cape"
+
+    # Get the Cook Strait earthquakes
+    client = Client("GEONET")
+    grassmere = client.get_events(eventid="2013p613797")[0]  # Lake Grassmere
+    ck_st = client.get_events(eventid="2013p543824")[0]  # Cook Strait
+
+    relocated = earthquakes[earthquakes.station_count == 0.0]
+
+    (min_latitude, min_longitude), (max_latitude, max_longitude) = bounds
+    scale_bar_length = 5
+    
+    pad = 0.05
+    map_size = size
+    fig = plt.figure(figsize=map_size)
+
+    gs = fig.add_gridspec(24, 1)
+    
+    cbar_ax = fig.add_subplot(gs[11, :])
+    section_ax = fig.add_subplot(gs[13:, :])
+
+    quakes = filter_earthquakes(
+        relocated, min_longitude=min_longitude, max_longitude=max_longitude,
+        min_latitude=min_latitude, max_latitude=max_latitude)
+
+    quakes = quakes.sort_values(
+        by="origintime", ignore_index=True, ascending=False)
+    
+    lats, lons, depths, times = (
+        quakes.latitude.to_numpy(), quakes.longitude.to_numpy(),
+        quakes.depth.to_numpy() / 1000., quakes.origintime.to_list())
+
+    # Get the projection
+    if min(lons) < -150 and max(lons) > 150:
+        max_lons = max(np.array(lons) % 360)
+        min_lons = min(np.array(lons) % 360)
+    else:
+        max_lons = max(lons)
+        min_lons = min(lons)
+    lat_0 = max(lats) / 2. + min(lats) / 2.
+    lon_0 = max_lons / 2. + min_lons / 2.
+    if lon_0 > 180:
+        lon_0 -= 360
+    deg2m_lat = 2 * np.pi * 6371 * 1000 / 360
+    deg2m_lon = deg2m_lat * np.cos(lat_0 / 180 * np.pi)
+    if len(lats) > 1:
+        height = (max(lats) - min(lats)) * deg2m_lat
+        width = (max_lons - min_lons) * deg2m_lon
+        margin = pad * (width + height)
+        height += margin
+        width += margin
+    else:
+        height = 2.0 * deg2m_lat
+        width = 5.0 * deg2m_lon
+    # Do intelligent aspect calculation for local projection
+    # adjust to figure dimensions
+    w, h = fig.get_size_inches()
+    aspect = w / h
+    aspect *= 1.2
+    if width / height < aspect:
+        width = height * aspect
+    else:
+        height = width / aspect
+
+    proj_kwargs = {}
+    proj_kwargs['central_latitude'] = lat_0
+    proj_kwargs['central_longitude'] = lon_0
+    proj_kwargs['standard_parallels'] = [lat_0, lat_0]
+    proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    # proj = NZTM
+
+    map_ax = fig.add_subplot(gs[0:11, :], projection=proj)
+    
+    sizes = quakes.magnitude ** 2
+    colors = depths
+    norm = Normalize(vmin=min(colors), vmax=20.0)
+    colormap = copy.copy(plt.get_cmap("plasma_r"))
+    colormap.set_over(color="lime")
+
+    fig, map_ax, cbar_ax, cb = _blank_map(
+        lats=lats, lons=lons, color=colors, projection="local", 
+        resolution="full", colormap=colormap, figsize=map_size,
+        proj_kwargs={}, norm=norm, continent_fill_color="0.65",
+        water_fill_color="0.9", fig=fig, map_ax=map_ax, cm_ax=cbar_ax)
+
+    map_ax.scatter(
+        lons, lats, marker="o", s=sizes, c=colors, zorder=7, alpha=0.9,
+        cmap=colormap, transform=ccrs.PlateCarree(), rasterized=True,
+        norm=norm)
+
+    # Outline those events prior to Kaikoura
+    pre_kaik_mask = np.array(times) < dt.datetime(2016, 11, 1)
+    map_ax.scatter(
+        lons[pre_kaik_mask], lats[pre_kaik_mask], marker="o", 
+        s=sizes[pre_kaik_mask], c=colors[pre_kaik_mask], zorder=8, alpha=0.9,
+        cmap=colormap, transform=ccrs.PlateCarree(), rasterized=True,
+        norm=norm, edgecolor="k")
+
+    # Plot large eqs
+    for eq, eq_name in [(grassmere, "Lake Grassmere"), (ck_st, "Cook Strait")]:
+        ori = eq.preferred_origin()
+        mag = eq.preferred_magnitude().mag
+        ck_st_handle = map_ax.scatter(
+            ori.longitude, ori.latitude, marker="*", s=5 * (mag ** 2),
+            facecolor="gold", edgecolor="k", zorder=10, alpha=1.0, 
+            transform=ccrs.PlateCarree(), rasterized=True)
+
+    # Plot mechanisms
+    # deep_mask = quakes.depth > 23000
+    # s, d, r, lat, lon, _depth = (
+    #         quakes[deep_mask].strike.to_list(), 
+    #         quakes[deep_mask].dip.to_list(),
+    #         quakes[deep_mask].rake.to_list(),
+    #         quakes[deep_mask].latitude.to_list(),
+    #         quakes[deep_mask].longitude.to_list(),
+    #         quakes[deep_mask].depth.to_list())
+    # for i in range(len(quakes[deep_mask])):
+    #     if np.any(np.isnan((s[i], d[i], r[i]))):
+    #         continue
+    #     color = _depth[i] / 1000.
+    #     red, green, blue, _alpha = colormap(norm(color))
+    #     plot_fm(strike=s[i], dip=d[i], rake=r[i],
+    #             latitude=lat[i], longitude=lon[i], zorder=20, axes=map_ax,
+    #             width=fm_size, color=(red, green, blue), alpha=0.6, 
+    #             rasterize=True)
+
+    # Plot Faults
+    faults = read_faults(
+        min_lat=min_latitude - 2, max_lat=max_latitude + 2,
+        min_lon=min_longitude - 2, max_lon=max_longitude + 2)
+    for fault in faults:
+        flons, flats = zip(*fault)
+        f_line, = map_ax.plot(
+            flons, flats, color="k", linewidth=1.5, zorder=8,
+            transform=ccrs.PlateCarree(), rasterized=True)
+
+    # Plot Kaikoura ruptures
+    try:
+        kaikoura_faults = get_kaikoura_faults()
+    except FileNotFoundError:
+        print("Could not find Kaikoura faults, skipping")
+        kaikoura_faults = None
+    if kaikoura_faults:
+        for fault in kaikoura_faults.values():
+            flons, flats = zip(*fault)
+            kaik_f_line, = map_ax.plot(
+                flons, flats, color="red", linewidth=2.0, zorder=9,
+                transform=ccrs.PlateCarree(), rasterized=True)
+
+    map_ax.set_extent(
+        [min_longitude, max_longitude, min_latitude, max_latitude],
+        crs=ccrs.PlateCarree())
+
+    gl = map_ax.gridlines(
+        draw_labels=True, dms=False, x_inline=False, y_inline=False)
+    gl.right_labels, gl.bottom_labels = False, False
+
+    # Plot subduction contours
+    subd_lats, subd_lons, subd_depths = get_williams_contours()
+    lat_mask, lon_mask = (np.ones_like(subd_lats, dtype=bool), 
+                          np.ones_like(subd_lons, dtype=bool))
+    if min_latitude:
+        lat_mask = np.logical_and(lat_mask, subd_lats >= min_latitude - 0.5)
+    if max_latitude:
+        lat_mask = np.logical_and(lat_mask, subd_lats <= max_latitude + 0.5)
+    if min_longitude:
+        lon_mask = np.logical_and(lon_mask, subd_lons >= min_longitude - 0.5)
+    if max_longitude:
+        lon_mask = np.logical_and(lon_mask, subd_lons <= max_longitude + 0.5)
+
+    subd_lats = subd_lats[lat_mask]
+    subd_lons = subd_lons[lon_mask]
+    subd_depths = subd_depths[lat_mask][:, lon_mask] * -1
+    contours = map_ax.contour(
+        subd_lons, subd_lats, subd_depths, colors="k", linestyles="dashed",
+        transform=ccrs.PlateCarree(), levels=[0, 5, 10, 15, 20, 25, 30, 40, 50],
+        zorder=9)
+    map_ax.clabel(contours, inline=1, fontsize=10, fmt="%i km", zorder=9)
+
+    # Plot scale bar
+    scale_bar(map_ax, (0.85, 0.2), scale_bar_length, angle=0)
+    scale_bar(map_ax, (0.85, 0.2), scale_bar_length, angle=90)
+
+    handles = [f_line, contours.collections[0], ck_st_handle]
+    labels = ["Active Faults", "Williams et al. Interface", "Cook Strait earthquakes"]
+    if kaik_f_line:
+        handles.append(kaik_f_line)
+        labels.append("Surface Rupture")
+
+    map_ax.legend(handles=handles, labels=labels, framealpha=1.0, 
+                  loc="lower right").set_zorder(10000)
+
+    # Plot x-section line
+    name, points = section, CROSS_SECTIONS[section]
+    x_start, x_end = points
+    x_lats, x_lons = [x_start[0], x_end[0]], [x_start[1], x_end[1]]
+    map_ax.plot(x_lons, x_lats, color="cyan", linewidth=3.0, zorder=2,
+                transform=ccrs.PlateCarree(), linestyle="--")
+
+    # Plot x-section
+    fig = plot_x_section(
+        earthquakes=relocated, start_latitude=CROSS_SECTIONS[section][0][0],
+        start_longitude=CROSS_SECTIONS[section][0][1],
+        end_latitude=CROSS_SECTIONS[section][1][0],
+        end_longitude=CROSS_SECTIONS[section][1][1],
+        starttime=MAINSHOCK_TIME,
+        max_depth=30, swath_half_width=5, dip=90.0, colormap="turbo_r",
+        size=None, logarithmic_color=True, color_by="timestamp", fig=fig,
+        plot_mainshock=False, ax=section_ax, magnitude_scale=True)
+    
+    # Add on the relevant faults.
+    print("Adding faults computed manually - if you have changed the section line yur fucked.")
+    london = [(16.0, 19.44), (0.0, 10.0)]  # 70 degree dip at dip direction = 115.6, projected onto section at 132.4 degrees
+    needles = [(23.5, 19.9), (0.0, 10.0)]  # 70 Degree dip opposite direction to london
+    section_ax.plot(london[0], london[1], color="k", zorder=5, alpha=0.6)
+    section_ax.plot(needles[0], needles[1], color="r", zorder=5, alpha=0.6)
+
+    fig.subplots_adjust(hspace=1.5)
+    
+    for _format in PLOT_FORMATS:
+        fig.savefig(f"{OUT}/Figure_8.{_format}", dpi=200)
+    return fig
+
+
 def compute_area(
     min_longitude: float, 
     max_longitude: float, 
@@ -1628,7 +1661,7 @@ def compute_area(
     return geom_area.area / 1e6
 
 
-def fig_9(size=(9.6, 12.8)):
+def fig_9(size=(9.6, 14.8)):
     """ GPS and cumulative EQs. """
     from gps_data_play import GPSStation
     from kaikoura_csv_visualisations import filter_earthquakes
@@ -1642,21 +1675,23 @@ def fig_9(size=(9.6, 12.8)):
     earthquakes = earthquakes.sort_values(by="origintime", ignore_index=True)
     earthquakes = filter_earthquakes(earthquakes, starttime=starttime, endtime=endtime)
 
-    fig, axes = plt.subplots(nrows=5, ncols=1, sharex=True, sharey=False, figsize=size)
+    fig, axes = plt.subplots(nrows=6, ncols=1, sharex=True, sharey=False, figsize=size)
     prop_cycle = plt.rcParams['axes.prop_cycle']
     colors = prop_cycle.by_key()['color']
 
     regions = {
         "Cape Campbell": dict(
             stations=["CMBL"], region=(174.1, 174.5, -41.85, -41.69), ax=axes[0]),
+        "Cape Campbell 2": dict(
+            stations=["WITH"], region=(174.1, 174.5, -41.85, -41.69), ax=axes[1]),
         "Kekerengu": dict(
-            stations=["LOK1", "GLOK"], region=(173.86, 174.1, -42.07, -41.85), ax=axes[1]),
+            stations=["LOK1", "GLOK"], region=(173.86, 174.1, -42.07, -41.85), ax=axes[2]),
         "Snowgrass": dict(
-            stations=["MUL1", "LOOK"], region=(173.7, 173.86, -42.3, -42), ax=axes[2]),
+            stations=["MUL1", "LOOK"], region=(173.7, 173.86, -42.3, -42), ax=axes[3]),
         "Kaikoura": dict(
-            stations=["KAIK"], region=(173.4, 173.7, -42.6, -42.3), ax=axes[3]),
+            stations=["KAIK"], region=(173.4, 173.7, -42.6, -42.3), ax=axes[4]),
         "Epicentral": dict(
-            stations=["MRBL"], region=(172.77, 173.4, -42.76, -42.6), ax=axes[4])}
+            stations=["MRBL"], region=(172.77, 173.4, -42.76, -42.6), ax=axes[5])}
 
     handles, labels = [], []
 
@@ -1667,7 +1702,7 @@ def fig_9(size=(9.6, 12.8)):
             earthquakes, min_longitude=_region[0], max_longitude=_region[1],
             min_latitude=_region[2], max_latitude=_region[3])
         cumulative = np.arange(len(quakes)) / compute_area(*_region)
-        handle, = region["ax"].plot(quakes.origintime, cumulative, "--")
+        handle, = region["ax"].plot(quakes.origintime, cumulative, "--", color="k")
         if "Cumulative density" not in labels:
             labels.append("Cumulative density")
             handles.append(handle)
@@ -1782,6 +1817,87 @@ def plot_all_gps(size=(18, 18)):
         fig.savefig(f"{OUT}/Supplementary_Figure_GPS.{_format}")
 
 
+def plot_uncertainties(size=(10, 10)):
+    import json
+
+    with open("../../Locations/GrowClust_located_magnitudes_callibrated.json", "r") as f:
+        growclust = json.load(f)
+
+    growclust_hori, growclust_depth = [], []
+    nll_hori_min, nll_hori_max, nll_depth = [], [], []
+    for ev in growclust["events"]:
+        try:
+            ori = ev['origins'][-1]
+        except (TypeError, IndexError):
+            continue
+        if ori['method_id'] is not None and ori['method_id']['id'] == "GrowClust":
+            growclust_hori.append(ori['origin_uncertainty']['horizontal_uncertainty'])
+            growclust_depth.append(ori['depth_errors']['uncertainty'])
+            nll_ori = ev['origins'][-2]
+        else:
+            nll_ori = ori
+        assert "nll" in nll_ori['creation_info']['author']
+        # Work out the average
+        nll_hori_min.append(nll_ori['origin_uncertainty']['min_horizontal_uncertainty'])
+        nll_hori_max.append(nll_ori['origin_uncertainty']['max_horizontal_uncertainty'])
+        nll_depth.append(nll_ori['depth_errors']['uncertainty'])
+
+    growclust_hori, growclust_depth = (
+        np.array(growclust_hori), np.array(growclust_depth))
+    
+    # Remove zero uncertainty - these are the fixed locations
+    fixed_mask = ~(growclust_hori == 0.0)
+    growclust_hori = growclust_hori[fixed_mask]
+    growclust_depth = growclust_depth[fixed_mask]
+
+    nll_hori_min, nll_hori_max, nll_depth = (
+        np.array(nll_hori_min), np.array(nll_hori_max), np.array(nll_depth))
+    
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=size)
+
+    bin_range = np.arange(0, 30000, 400)
+    axes[0][0].hist(nll_hori_min, bins=bin_range, alpha=1.0, label="Minimum", 
+                    color='black', edgecolor="black", linewidth=1.2)
+    axes[0][0].hist(nll_hori_max, bins=bin_range, alpha=0.5, label="Maximum", 
+                    color='grey', edgecolor="lightgrey", linewidth=1.2)
+    axes[0][0].set_xlabel("Uncertainty (m)")
+    axes[0][0].legend()
+    axes[0][0].set_title("NonLinLoc 68% confidence, horizontal")
+    axes[0][0].set_xlim(0, max(bin_range))
+
+    axes[0][1].hist(nll_depth, bins=bin_range, color="grey", edgecolor="k")
+    axes[0][1].set_xlabel("Uncertainty (m)")
+    axes[0][1].set_title("NonLinLoc 68% confidence, vertical")
+    axes[0][1].set_xlim(0, max(bin_range))
+    axes[0][1].yaxis.tick_right()
+    axes[0][1].yaxis.set_label_position("right")
+
+    bin_range = np.arange(0, 3000, 100)
+    axes[1][0].hist(growclust_hori, bins=bin_range, color="grey", edgecolor='k')
+    axes[1][0].set_title("GrowClust bootstrap uncertainty, horizontal")
+    axes[1][0].set_xlabel("Uncertainty (m)")
+    axes[1][0].set_xlim(0, max(bin_range))
+
+    axes[1][1].hist(growclust_depth, bins=bin_range, color="grey", edgecolor='k')
+    axes[1][1].set_title("GrowClust bootstrap uncertainty, vertical")
+    axes[1][1].set_xlabel("Uncertainty (m)")
+    axes[1][1].set_xlim(0, max(bin_range))
+    axes[1][1].yaxis.tick_right()
+    axes[1][1].yaxis.set_label_position("right")
+
+    for ax in axes.ravel():
+        ax.set_ylabel("Number of earthquakes")
+
+    names = ["growclust hori", "growclust depth", "nll min hori", 
+             "nll max hori", "nll depth"]
+    uncerts = [growclust_hori, growclust_depth, nll_hori_min, nll_hori_max, nll_depth]
+    for name, var in zip(names, uncerts):
+        print(f"{name}: mean: {var.mean()} median: {np.median(var)}")
+
+    for _format in PLOT_FORMATS:
+        fig.savefig(f"{OUT}/Supplementary_Figure_uncertainties.{_format}")
+    return
+
 
 def plot_donna_qs(
     x: float = 93.0,
@@ -1890,6 +2006,297 @@ def plot_donna_qs(
 
     return fig, (start, end)
     
+
+def plot_fm_network(size=(6, 6)):
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+
+    with open("stations.nll", "r") as f:
+        stations = f.read().splitlines()
+
+    lats, lons = zip(*[(float(sta.split()[3]), float(sta.split()[4]))
+                       for sta in stations if len(sta.split())])
+    
+    fig = plt.figure(figsize=size)    
+    big_max_lat, big_min_lat, big_min_lon, big_max_lon = (
+        -39.2, -44.2, 171.5, 177)
+    big_map_ax = fig.add_subplot(projection=NZTM)
+    big_map_ax.set_extent(
+        [big_min_lon, big_max_lon, big_min_lat, big_max_lat],
+        crs=ccrs.PlateCarree())
+    
+    coast_big = cfeature.GSHHSFeature(
+        scale="intermediate", levels=[1], facecolor="0.9", 
+        edgecolor="0.4")
+    big_map_ax.set_facecolor("0.65")
+    big_map_ax.add_feature(coast_big)
+
+    big_gl = big_map_ax.gridlines(
+        draw_labels=True, dms=False, x_inline=False, y_inline=False)
+    # big_gl.left_labels, big_gl.top_labels = False, False
+    
+    big_map_ax.scatter(
+        MAINSHOCK[1], MAINSHOCK[0], marker="*", facecolor="gold", 
+        edgecolor="k", s=200.0, zorder=11, transform=ccrs.PlateCarree())
+    
+    big_map_ax.scatter(
+        lons, lats, facecolor="orange",
+        edgecolor="k", marker="v", zorder=10, transform=ccrs.PlateCarree(),
+        s=100)
+    for _format in PLOT_FORMATS:
+        fig.savefig(f"{OUT}/Supplementary_Figure_GM_stations.{_format}")
+
+    return
+
+
+def plot_snowgrass_mechanisms(size=(8, 10)):
+    from kaikoura_csv_visualisations import rake_cmap
+
+    earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
+    earthquakes = earthquakes.rename(columns={"time": "origintime"})
+
+    bounds = REGIONS["Snowgrass"]
+
+    relocated = earthquakes[earthquakes.station_count == 0.0]
+
+    (min_latitude, min_longitude), (max_latitude, max_longitude) = bounds
+    scale_bar_length = 2.5
+    
+    pad = 0.05
+    map_size = size
+    fig = plt.figure(figsize=map_size)
+
+    gs = fig.add_gridspec(12, 1)
+    
+    cbar_ax = fig.add_subplot(gs[11, :])
+
+    quakes = filter_earthquakes(
+        relocated, min_longitude=min_longitude, max_longitude=max_longitude,
+        min_latitude=min_latitude, max_latitude=max_latitude)
+
+    quakes = quakes.sort_values(
+        by="origintime", ignore_index=True, ascending=False)
+    
+    lats, lons, depths, times = (
+        quakes.latitude.to_numpy(), quakes.longitude.to_numpy(),
+        quakes.depth.to_numpy() / 1000., quakes.origintime.to_list())
+
+    # Get the projection
+    if min(lons) < -150 and max(lons) > 150:
+        max_lons = max(np.array(lons) % 360)
+        min_lons = min(np.array(lons) % 360)
+    else:
+        max_lons = max(lons)
+        min_lons = min(lons)
+    lat_0 = max(lats) / 2. + min(lats) / 2.
+    lon_0 = max_lons / 2. + min_lons / 2.
+    if lon_0 > 180:
+        lon_0 -= 360
+    deg2m_lat = 2 * np.pi * 6371 * 1000 / 360
+    deg2m_lon = deg2m_lat * np.cos(lat_0 / 180 * np.pi)
+    if len(lats) > 1:
+        height = (max(lats) - min(lats)) * deg2m_lat
+        width = (max_lons - min_lons) * deg2m_lon
+        margin = pad * (width + height)
+        height += margin
+        width += margin
+    else:
+        height = 2.0 * deg2m_lat
+        width = 5.0 * deg2m_lon
+    # Do intelligent aspect calculation for local projection
+    # adjust to figure dimensions
+    w, h = fig.get_size_inches()
+    aspect = w / h
+    aspect *= 1.2
+    if width / height < aspect:
+        width = height * aspect
+    else:
+        height = width / aspect
+
+    proj_kwargs = {}
+    proj_kwargs['central_latitude'] = lat_0
+    proj_kwargs['central_longitude'] = lon_0
+    proj_kwargs['standard_parallels'] = [lat_0, lat_0]
+    proj = ccrs.AlbersEqualArea(**proj_kwargs)
+    # proj = NZTM
+
+    map_ax = fig.add_subplot(gs[0:11, :], projection=proj)
+    
+    sizes = quakes.magnitude ** 2
+    colors = quakes.rake.to_list()
+    norm = Normalize(vmin=-180, vmax=180)
+    colormap = rake_cmap()
+    
+    fig, map_ax, cbar_ax, cb = _blank_map(
+        lats=lats, lons=lons, color=colors, projection="local", 
+        resolution="full", colormap=colormap, figsize=map_size,
+        proj_kwargs={}, norm=norm, continent_fill_color="0.65",
+        water_fill_color="0.9", fig=fig, map_ax=map_ax, cm_ax=cbar_ax)
+
+    cbar_ax.set_xlabel('Rake$^\circ$')
+    cb.set_ticks([-180, -90, 0, 90, 180])
+
+    mappable_locs = map_ax.scatter(
+        lons, lats, marker="o", s=sizes, c="k", zorder=7, alpha=0.9,
+        transform=ccrs.PlateCarree(), rasterized=True)
+    magnitudes = [1, 2, 3]  # Magnitudes to plot sizes for
+
+    scatter_handles, labels = mappable_locs.legend_elements(
+        "sizes", num=[mag ** 2 for mag in magnitudes])
+    scatter_labels = [f"ML {m}" for m in magnitudes]
+
+    # Plot mechanisms
+    # fm_mask = np.logical_and(quakes.rake > 45, quakes.rake < 125)
+
+    fm_mask = np.ones(len(quakes), dtype=np.bool)
+    s, d, r, lat, lon, _depth = (
+            quakes[fm_mask].strike.to_list(), 
+            quakes[fm_mask].dip.to_list(),
+            quakes[fm_mask].rake.to_list(),
+            quakes[fm_mask].latitude.to_list(),
+            quakes[fm_mask].longitude.to_list(),
+            quakes[fm_mask].depth.to_list())
+    for i in range(len(quakes[fm_mask])):
+        if np.any(np.isnan((s[i], d[i], r[i]))):
+            continue
+        color = r[i]
+        red, green, blue, _alpha = colormap(norm(color))
+        plot_fm(strike=s[i], dip=d[i], rake=r[i],
+                latitude=lat[i], longitude=lon[i], zorder=20, axes=map_ax,
+                width=30, color=(red, green, blue), alpha=1.0, 
+                rasterize=True)
+
+    # Plot Faults
+    faults = read_faults(
+        min_lat=min_latitude - 2, max_lat=max_latitude + 2,
+        min_lon=min_longitude - 2, max_lon=max_longitude + 2)
+    for fault in faults:
+        flons, flats = zip(*fault)
+        f_line, = map_ax.plot(
+            flons, flats, color="k", linewidth=1.5, zorder=8,
+            transform=ccrs.PlateCarree(), rasterized=True)
+
+    # Plot Kaikoura ruptures
+    try:
+        kaikoura_faults = get_kaikoura_faults()
+    except FileNotFoundError:
+        print("Could not find Kaikoura faults, skipping")
+        kaikoura_faults = None
+    if kaikoura_faults:
+        for fault in kaikoura_faults.values():
+            flons, flats = zip(*fault)
+            kaik_f_line, = map_ax.plot(
+                flons, flats, color="red", linewidth=2.0, zorder=9,
+                transform=ccrs.PlateCarree(), rasterized=True)
+
+    map_ax.set_extent(
+        [min_longitude, max_longitude, min_latitude, max_latitude],
+        crs=ccrs.PlateCarree())
+
+    gl = map_ax.gridlines(
+        draw_labels=True, dms=False, x_inline=False, y_inline=False)
+    gl.right_labels, gl.bottom_labels = False, False
+
+    # Plot subduction contours
+    subd_lats, subd_lons, subd_depths = get_williams_contours()
+    lat_mask, lon_mask = (np.ones_like(subd_lats, dtype=bool), 
+                          np.ones_like(subd_lons, dtype=bool))
+    if min_latitude:
+        lat_mask = np.logical_and(lat_mask, subd_lats >= min_latitude - 0.5)
+    if max_latitude:
+        lat_mask = np.logical_and(lat_mask, subd_lats <= max_latitude + 0.5)
+    if min_longitude:
+        lon_mask = np.logical_and(lon_mask, subd_lons >= min_longitude - 0.5)
+    if max_longitude:
+        lon_mask = np.logical_and(lon_mask, subd_lons <= max_longitude + 0.5)
+
+    subd_lats = subd_lats[lat_mask]
+    subd_lons = subd_lons[lon_mask]
+    subd_depths = subd_depths[lat_mask][:, lon_mask] * -1
+    contours = map_ax.contour(
+        subd_lons, subd_lats, subd_depths, colors="k", linestyles="dashed",
+        transform=ccrs.PlateCarree(), levels=[0, 5, 10, 15, 20, 25, 30, 40, 50],
+        zorder=9)
+    map_ax.clabel(contours, inline=1, fontsize=10, fmt="%i km", zorder=9)
+
+    # Plot scale bar
+    scale_bar(map_ax, (0.85, 0.85), scale_bar_length, angle=0)
+    scale_bar(map_ax, (0.85, 0.85), scale_bar_length, angle=90)
+
+    handles = [f_line, contours.collections[0]]
+    labels = ["Active Faults", "Interface"]
+    if kaik_f_line:
+        handles.append(kaik_f_line)
+        labels.append("Surface Rupture")
+
+    labels.extend(scatter_labels)
+    handles.extend(scatter_handles)
+
+    map_ax.legend(handles=handles, labels=labels, framealpha=1.0, 
+                  loc="upper left").set_zorder(10000)
+
+    for _format in PLOT_FORMATS:
+        print(f"Saving as {_format}")
+        fig.savefig(f"{OUT}/Supplementary_Figure_Snowgrass.{_format}", dpi=200)
+
+
+def plot_distance_from_cape(size=(5, 5)):
+    from obspy.geodetics import gps2dist_azimuth
+    import matplotlib.colors as mcolors
+
+    point = (-41.8, 174.18)
+    min_az, max_az = -95, 135
+
+    earthquakes = pd.read_csv(RELOCATED_EVENTS, parse_dates=["time"])
+    earthquakes = earthquakes.rename(columns={"time": "origintime"})
+
+    earthquakes = filter_earthquakes(earthquakes, starttime=MAINSHOCK_TIME)
+
+    dist, az = [], []
+    for lat, lon, depth in zip(earthquakes.latitude, earthquakes.longitude, earthquakes.depth):
+        _dist, _az , _ = gps2dist_azimuth(point[0], point[1], lat, lon)
+        _dist = (_dist ** 2 + depth ** 2) ** .5
+        dist.append(_dist / 1000)
+        az.append(_az)
+    
+    earthquakes["distance"] = dist
+    azimuth = np.array(az)
+
+    # Map azimuths around N to filter
+    west_filter = azimuth > 180
+    azimuth[west_filter] = azimuth[west_filter] - 360
+    earthquakes['azimuth'] = azimuth
+
+    azimuth_filter = earthquakes.azimuth.between(min_az, max_az)
+
+    filtered = earthquakes[azimuth_filter]
+
+    times = [(t - MAINSHOCK_TIME).total_seconds() for t in filtered.origintime]
+
+    max_dist = 60
+    fig, ax = plt.subplots()
+    # ax.scatter(times, filtered.distance, color="k", marker="x")
+    xedges = np.logspace(2, 8, num=300, base=10)
+    # xedges = np.arange(100, max(times), 3600)
+
+    h, xedges, yedges, mappable = ax.hist2d(
+        times, filtered.distance, 
+        bins=[xedges, np.arange(0, max_dist, 1)], cmap='binary', 
+              norm=mcolors.LogNorm())
+    cbar = fig.colorbar(mappable)
+    cbar.set_label("Density")
+
+    ax.set_xscale('log')
+    ax.set_xlabel(f"Time (s) since {MAINSHOCK_TIME}")
+    ax.set_ylabel(f"Distance from {point[0]}, {point[1]} (km)")
+    
+    ax.set_xlim(1000, max(times))
+    ax.set_ylim(0, max_dist)
+
+    for _format in PLOT_FORMATS:
+        fig.savefig(f"{OUT}/Figure_8c.{_format}", dpi=200)
+
+    return
 
 
 if __name__ == "__main__":
