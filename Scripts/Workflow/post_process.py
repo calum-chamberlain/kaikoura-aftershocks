@@ -315,7 +315,4 @@ if __name__ == "__main__":
         tag = "declustered_{0}s".format(args.decluster) + tag
         write_cat(
             cat=declustered_cat, path=os.path.dirname(args.input), 
-            tag=tag)  
-
-
-
+            tag=tag)
