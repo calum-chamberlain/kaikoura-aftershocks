@@ -18,7 +18,7 @@ used EQcorrscan to generate templates and run the correlations.
         - Workflow/
             - generate_templates.py - Script for generating templates
             - kaikoura_detect.py - Script for running the matched-filter routines
-            - simul_locate.py - Locate detections using SIMUL
+            - 
         - Analysis_Visualisation/  - Scripts and functions for analysing the catalogue
         
 

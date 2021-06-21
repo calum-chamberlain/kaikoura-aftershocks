@@ -93,7 +93,8 @@ def get_ristau_moment_tensor_db(
 
 
 def main():
-    new_catalog = read_events("../Locations/NLL_located_magnitudes.xml")
+    new_catalog = read_events(
+        "../../Locations/NonLinLoc_NZW3D_2.2/NLL_located_magnitudes.xml")
     
     # Get comparison events - just use those in the Kaikoura region.
     min_lat, max_lat, min_lon, max_lon = -42.9, -41.3, 172.3, 175.0
@@ -117,13 +118,19 @@ def main():
             event.magnitudes.append(ristau_mag)
             event.preferred_magnitude_id = ristau_mag.resource_id
         comparison_cat += event
-
+    
+    # Note: inversion too large for KEA, run on SGEES001
     output, gamma, station_corrections = magnitude_inversion(
         new_catalog=new_catalog, callibration_catalog=comparison_cat,
-        magnitude_type="Mw", only_matched=True, in_place=True)
+        time_difference=5.0, epicentral_difference=20.0, depth_difference=30.0,
+        magnitude_type="Mw", only_matched=False, in_place=True, plot=False)
+    # output, gamma, station_corrections = magnitude_inversion(
+    #     new_catalog=new_catalog, callibration_catalog=comparison_cat,
+    #     magnitude_type="Mw", only_matched=True, in_place=True)
 
-    output.write("../Locations/NLL_located_magnitudes_callibrated.xml",
-                 format="QUAKEML")
+    output.write(
+        "../../Locations/NonLinLoc_NZW3D_2.2/NLL_located_magnitudes_callibrated.xml",
+        format="QUAKEML")
     print(f"Written callibrated catalog")
 
     out_parameters = {

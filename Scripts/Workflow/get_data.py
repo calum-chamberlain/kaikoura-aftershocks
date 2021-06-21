@@ -134,7 +134,8 @@ def get_waveforms_from_clients(
     starttime, 
     endtime, 
     template_params,
-    return_stream=True
+    return_stream=True,
+    cores=1,
 ):
     from concurrent.futures import ThreadPoolExecutor
 
@@ -145,7 +146,7 @@ def get_waveforms_from_clients(
     seed_ids = set(template_params.seed_ids)
 
     futures = []
-    with ThreadPoolExecutor(max_workers=12) as executor:
+    with ThreadPoolExecutor(max_workers=len(seed_ids)) as executor:
         for seed_id in seed_ids:
             net, sta, loc, chan = seed_id.split('.')
             kwargs = dict(
@@ -159,8 +160,13 @@ def get_waveforms_from_clients(
         for future in futures:
             st += future.result()
 
+    parallel = False
+    if cores > 1:
+        parallel = True
+        cores = 12
+    print(f"Trying to use {cores} cores for processing")
     processed_streams = _group_process(
-        [template_params], parallel=False, cores=1, stream=st.merge(),
+        [template_params], parallel=parallel, cores=cores, stream=st.merge(),
         daylong=False, ignore_length=False, ignore_bad_data=True,
         overlap=0.0)  # Overlap handled elsewhere
     st = processed_streams[0]
@@ -179,7 +185,7 @@ def _get_waveform(client, params):
         st = client.get_waveforms(**params).trim(
             starttime=params["starttime"], endtime=params["endtime"])
     except Exception as e:
-        Logger.warning(f"Could not download for {params} due to {e}")
+        Logger.debug(f"Could not download for {params} due to {e}")
         return Stream()
     Logger.debug(f"Acquired stream for {params}")
     return st
@@ -200,6 +206,8 @@ if __name__ == "__main__":
                         help="Template parameter file")
     parser.add_argument("-o", "--outfile", type=str, required=True,
                         help="File to write to - must not exist")
+    parser.add_argument("-c", "--cores", type=int, required=False, default=1,
+                        help="Number of cores to process data using.")
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Increase output")
 
@@ -224,7 +232,7 @@ if __name__ == "__main__":
 
     st = get_waveforms_from_clients(
         starttime=startdate, endtime=enddate, 
-        template_params=template_params, return_stream=True)
+        template_params=template_params, return_stream=True, cores=args.cores)
     st.write(args.outfile, format="MSEED")
     Logger.info(f"Written stream of {len(st)} traces to {args.outfile}")
 

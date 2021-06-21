@@ -294,8 +294,8 @@ def locate_and_remove_picks(
 if __name__ == "__main__":
     """
     Kaikoura input:
-    python locate_remove_picks.py -c ../Detections/AWS_run1/declustered_2s_minimum_5_stations_2009-01-01-2019-11-01_detections.xml\
-        -i Kaikoura_geonet_inv.xml -o ../Detections/AWS_run1/bad_picks_removed_2009-01-01-2019-11-01_repicked_catalog.xml
+    python locate_remove_picks.py -c ../../Detections_2021/declustered_2sminimum_5_stations_2009-01-02-2020-01-01_detections.xml\
+        -i Kaikoura_stations.xml -o ../../Detections_2021/bad_picks_removed_2009-01-01-2020-01-01_repicked_catalog.xml
     """
     import argparse
 

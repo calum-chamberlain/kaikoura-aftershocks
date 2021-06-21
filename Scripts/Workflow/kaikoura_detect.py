@@ -128,8 +128,10 @@ def day_process(tribe, st, date, retries, skip_done: bool = False, gpu: bool = F
 
     # Need to hack to add in chans not used for detection
     for fam in party:
+        # TODO: there was a bug here - template.st rather than fam.template.st
         template_stachans = {
-                (tr.stats.station, tr.stats.channel) for tr in template.st}
+                (tr.stats.station, tr.stats.channel) 
+                for tr in fam.template.st}
         stachans = template_stachans.intersection(
             {(tr.stats.station, tr.stats.channel) for tr in st})
         for det in fam:

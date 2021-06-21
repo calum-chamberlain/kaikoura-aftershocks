@@ -3,6 +3,7 @@ Make magnitude picks for detected and located events.
 """
 import os
 from math import log10
+from typing import Union
 
 from obspy import read_events, Stream, Inventory, UTCDateTime, Catalog, read
 from obspy.core.event import (
@@ -17,8 +18,8 @@ from eqcorrscan import Tribe
 from eqcorrscan.utils.mag_calc import amp_pick_event
 
 
-CLIENT = Client("GEONET")
-EVENT_FILE = "../Locations/NLL_located.xml"
+CLIENTS = {"NZ": Client("GEONET"), "Z1": Client("IRIS")}
+EVENT_FILE = "../../Locations/NonLinLoc_NZW3D_2.2/NLL_located.xml"
 
 
 def read_station_corrections(filename):
@@ -29,7 +30,7 @@ def read_station_corrections(filename):
     return {l[0]: float(l[1].replace("−", "-")) for l in lines[1:]}
 
 
-STATION_CORRECTIONS = read_station_corrections("../Ristau2016_station_corrections.tsv")
+# STATION_CORRECTIONS = read_station_corrections("../Ristau2016_station_corrections.tsv")
 
 
 def make_bulk_for_event(
@@ -85,28 +86,47 @@ def get_waveforms_for_event(
     length: float = 140., 
     pre_origin: float = 20.
 ) -> Stream:
+    from concurrent.futures import ThreadPoolExecutor
+
     starttime = (event.preferred_origin() or event.origins[0]).time
     starttime -= pre_origin
     endtime = starttime + length
     bulk = make_bulk_for_event(event, starttime, endtime)
-    try:
-        st = CLIENT.get_waveforms_bulk(bulk)
-    except Exception as e:
-        print(e)
-        st = Stream()
+    st = Stream()
+    futures = []
+    with ThreadPoolExecutor(max_workers=len(bulk)) as executor:
         for b in bulk:
-            try:
-                st += CLIENT.get_waveforms(*b)
-            except Exception as e:
-                pass
+            futures.append(executor.submit(_get_st, b))
+        for future in futures:
+            st += future.result()
     return st
 
 
-def get_inv_for_event(event: Event) -> Inventory:
-    starttime = (event.preferred_origin() or event.origins[0]).time
-    endtime = starttime + 600
-    bulk = make_bulk_for_event(event, starttime, endtime)
-    return CLIENT.get_stations_bulk(bulk, level="response")
+def _get_st(bulk):
+    client = CLIENTS.get(b[0])
+    try:
+        st = client.get_waveforms(*bulk)
+    except Exception as e:
+        st = Stream()
+    return st
+
+
+def get_inv(event: Union[Event, Catalog]) -> Inventory:
+    if isinstance(event, Event):
+        starttime = (event.preferred_origin() or event.origins[0]).time
+        endtime = starttime + 600
+        bulk = make_bulk_for_event(event, starttime, endtime)
+    else:
+        bulk = make_bulk_for_catalog(event)
+    inv = None
+    for net, client in CLIENTS.items():
+        _bulk = [b for b in bulk if b[0] == net]
+        _inv = client.get_stations_bulk(_bulk, level="response")
+        if inv is None:
+            inv = _inv
+        else:
+            inv += _inv
+    return inv
 
 
 def geonet_magnitude(event: Event, inv: Inventory) -> Event:
@@ -258,20 +278,21 @@ def event_magnitude(
         st = get_waveforms_for_event(event, length=120)
         st.write(f"{event_dir}/{event_fname}.ms", format="MSEED")
     if inventory is None:
-        inventory = get_inv_for_event(event)
+        inventory = get_inv(event)
     event = amp_pick_event(
         event, st=st, inventory=inventory, chans=["1", "2", "N", "E"], 
         iaspei_standard=False)
     if len(event.amplitudes) == 0:
         return event
-    event = geonet_magnitude(event, inv)
+    # event = geonet_magnitude(event, inv)
     # Relative magnitude
-    event = relative_magnitude(event, st, tribe)
+    if tribe is not None:
+        event = relative_magnitude(event, st, tribe)
     event.write(f"{event_dir}/{event_fname}.xml", format="QUAKEML")
     return event
 
 
-def link_arrivals(event):
+def link_arrivals(event, inv: Inventory = None):
     """ Link arrivals to picks if they are not linked. """
     from obspy.geodetics import gps2dist_azimuth, kilometer2degrees
 
@@ -280,7 +301,8 @@ def link_arrivals(event):
         (p.waveform_id.network_code, p.waveform_id.station_code, 
          p.waveform_id.location_code, p.waveform_id.channel_code, 
          ori.time - 3600, ori.time + 3600) for p in event.picks]
-    inv = CLIENT.get_stations_bulk(bulk)
+    if inv is None:
+        inv = get_inv(event)
 
     sta_dist = dict() 
     for network in inv: 
@@ -343,9 +365,10 @@ if __name__ == "__main__":
 
     cat = read_events(EVENT_FILE)
     # template_cat = read_events("../Templates/STREWN_merged_catalog.xml")
-    tribe = Tribe().read("../Templates/STREWN_merged_catalog_4s_1.5Hz-12Hz_2019_geonet_mags.tgz")
-    bulk = make_bulk_for_catalog(cat)
-    inv = CLIENT.get_stations_bulk(bulk, level="response")
+    # tribe = Tribe().read("../Templates/STREWN_merged_catalog_4s_1.5Hz-12Hz_2019_geonet_mags.tgz")
+    tribe = None
+    inv = get_inv(event=cat)
+
     cat_out = Catalog()
     bar = ProgressBar(max_value=len(cat))
     i = 0
@@ -357,7 +380,9 @@ if __name__ == "__main__":
         i += 1
     bar.finish()
 
-    cat_out.write("../Locations/NLL_located_magnitudes.xml", format="QUAKEML")
+    cat_out.write(
+        "../../Locations/NonLinLoc_NZW3D_2.2/NLL_located_magnitudes.xml", 
+        format="QUAKEML")
 
     # Write out a summary csv
     df = event_to_dataframe(cat_out[0])

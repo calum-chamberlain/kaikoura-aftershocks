@@ -17,6 +17,10 @@ from obspy import read_events, read, UTCDateTime
 from obsplus.events.json import dict_to_cat
 
 
+#Stations to ignore inverted motion in inventory for - The Geospace HS-1-3C may be wrong on IRIS
+UNFLIPPED_STATIONS = ["CSCP", "STAW", "CSWB", "STWC", "LTW2"]
+
+
 def plot_focal_mechanisms(event, show=True):
     from focal_mechanism_plotting import FocalMechanism, Polarity, NodalPlane
 
@@ -132,14 +136,14 @@ def write_nonlinloc_obs(catalog: Catalog, directory: str):
 def main():
     
     # Read in dict of full catalog - lighter to play with
-    with open("../Locations/NLL_located_magnitudes_callibrated.json", "r") as f:
+    with open("../../Locations/NonLinLoc_NZW3D_2.2/NLL_located_magnitudes_callibrated.json", "r") as f:
         located_cat_dict = json.load(f)
     located_origin_times = [
         UTCDateTime(ev["origins"][0]["time"])
         for ev in located_cat_dict["events"]]
 
     # Get list of template events to work with
-    template_files = sorted(glob.glob("../Templates/Polarities/*.xml"))
+    template_files = sorted(glob.glob("../../Templates/Polarities/*.xml"))
 
     # Get inventory - used for checking station polarity reversal
     client = Client("IRIS")
@@ -191,6 +195,7 @@ def main():
             continue
 
         # We want the matched-event and we will add polarities in to that
+        picks_differ = False  # There is potential for rate issues
         _template = matched_event.copy()
         for pick in _template.picks:
             # Only care about P-picks - we don't need to add unused S-picks
@@ -204,19 +209,23 @@ def main():
                 if pick.waveform_id == template_pick.waveform_id:
                     # This should be a match!
                     if abs(pick.time - template_pick.time) > 0.5:
-                        raise NotImplementedError(f"{pick.time} is different to {template_pick.time}")
+                        print(f"{pick.time} is different to {template_pick.time}")
+                        picks_differ = True
                     break
                 # Sometimes picks were made on strong-motions
                 elif pick.waveform_id.station_code == template_pick.waveform_id.station_code:
-                    # This is fine, we can skip - can't add polarities to weak-motion as they may be reversed
+                    # This is fine, we can skip
                     strong_motion = True
             else:
                 if not strong_motion:
-                    # We don't need to warn about these.
+                    # We don't need to warn about strong-motions - we removed those.
                     print(f"No match found for {pick}")
                 continue
             # Assign manually checked polarity to template pick.
             pick.polarity = template_pick.polarity
+        if picks_differ:
+            print("Match rejected due to differing picks")
+            continue
 
         # Add in the other picks that have polarities
         used_stations = {pick.waveform_id.station_code for pick in _template.picks if pick.phase_hint in "Pp"}
@@ -247,7 +256,7 @@ def main():
             except IndexError:
                 print(f"WARNING: No inventory info for pick: {pick}")
                 continue
-            if chan.dip > 0:
+            if chan.dip > 0 and pick.waveform_id.station_code not in UNFLIPPED_STATIONS:
                 # Reversed polarity, normal is dip = -90
                 if pick.polarity == "positive":
                     print(f"Flipping polarity for {pick.waveform_id.station_code} to negative")
@@ -268,7 +277,7 @@ def main():
     
     write_nonlinloc_obs(
         focal_mechanism_cat, 
-        "../Templates/Polarities/Manually_checked_polarities_NLL")
+        "../../Templates/Polarities/Manually_checked_polarities_NLL")
 
 
 if __name__ == "__main__":
