@@ -77,7 +77,6 @@ def detect(tribe, st, gpu):
 
     return party
 
-
 def day_process(tribe, st, date, retries, skip_done: bool = False, gpu: bool = False):
     outfile = "{0}/{1}-{2}_party.tgz".format(
         DETECTION_PATH, date, (date + 86400))

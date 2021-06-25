@@ -44,8 +44,8 @@ REGIONS = {
 }
 RELOCATED_EVENTS = "../../Locations/GrowClust_located_magnitudes_callibrated_focal_mechanisms.csv"
 
-MAINSHOCK = (-42.623531, 172.988788, 12.917969)  # My NLL location.
-MAINSHOCK_TIME = dt.datetime(2016, 11, 13, 11, 2, 56)  # GeoNet origin time
+MAINSHOCK = (-42.623531, 172.988788, 12.527344)  # My NLL location - updated 2021.
+MAINSHOCK_TIME = dt.datetime(2016, 11, 13, 11, 2, 56)  # My origin time
 # Shift the start of plots to a bit before
 MAINSHOCK_TIME -= dt.timedelta(seconds=30)
 
@@ -165,13 +165,13 @@ def plot_topography(
 
     # Work on shading
     lightsource = LightSource(azdeg=315, altdeg=45)
-    hillshade = lightsource.shade(
+    _hillshade = lightsource.shade(
         np.nan_to_num(dem[0]), vert_exag=vertical_exageration, 
         blend_mode='soft', cmap=cm.get_cmap(cmap))
     
     # Ensure the shape is right - this is probably because one function 
     # taking edges and the other taking middles AND IS A HACK!!!
-    hillshade = hillshade[0:len(dem.y) - 1, 0:len(dem.x) - 1]
+    _hillshade = _hillshade[0:len(dem.y) - 1, 0:len(dem.x) - 1]
 
 
     # Quick check whether the EPSG matches NZTM EPSG
@@ -181,7 +181,7 @@ def plot_topography(
         dem_proj = ccrs.epsg(dem.crs.split(":")[-1])
     if hillshade:
         map_ax.pcolorfast(
-            dem.x, dem.y, hillshade, transform=dem_proj)
+            dem.x, dem.y, _hillshade, transform=dem_proj)
     else:
         dem.plot(ax=map_ax, x='lon', y='lat', transform=ccrs.PlateCarree(),
             cmap=cmap, add_colorbar=False, rasterized=True)
@@ -556,24 +556,41 @@ def fig_1(size=(10, 10)):
         "gps_station_locations.csv", parse_dates=["Start", "End"])
     gps_markers = map_ax.scatter(
         gps_stations.Longitude, gps_stations.Latitude, facecolor="lime",
-        edgecolor="k", marker="^", zorder=10, transform=ccrs.PlateCarree(), 
+        edgecolor="k", marker="^", zorder=100, transform=ccrs.PlateCarree(), 
         s=150)
     for lat, lon, code in zip(gps_stations.Latitude, gps_stations.Longitude, gps_stations["Station code"]):
-        map_ax.text(lon + 0.015, lat - 0.01, code, transform=ccrs.PlateCarree(), 
-                    zorder=100, clip_on=True)
+        if code == "LOK1/GLOK":
+            code = "LOK1\nGLOK"
+        map_ax.text(lon + 0.025, lat - 0.01, code, transform=ccrs.PlateCarree(), 
+                    zorder=80, clip_on=True, 
+                    bbox=dict(fc="white", boxstyle="round", ec="black", alpha=0.7))
     
     # Plot Seismographs
     seismographs = pd.read_csv(
         "seismograph_locations.csv", parse_dates=["Start", "End"])
+    # Plot those used for detection and picking
     seismograph_markers = map_ax.scatter(
-        seismographs.Longitude, seismographs.Latitude, facecolor="orange",
-        edgecolor="k", marker="v", zorder=10, transform=ccrs.PlateCarree(),
-        s=200)
+        seismographs.Longitude[seismographs.Detection.astype(bool)], 
+        seismographs.Latitude[seismographs.Detection.astype(bool)],
+        facecolor="orange", edgecolor="k", marker="v", zorder=101, 
+        transform=ccrs.PlateCarree(), s=200)
+    # Plot those just used for picking as a different glyph
+    seismograph_markers_picking = map_ax.scatter(
+        seismographs.Longitude[~seismographs.Detection.astype(bool)], 
+        seismographs.Latitude[~seismographs.Detection.astype(bool)],
+        facecolor="orange", edgecolor="k", marker="s", zorder=101, 
+        transform=ccrs.PlateCarree(), s=75)
     for lat, lon, code in zip(seismographs.Latitude, seismographs.Longitude, seismographs["Station code"]):
         if min_latitude < lat and lat < max_latitude and min_longitude < lon and lon < max_longitude:
-            map_ax.text(lon - 0.02, lat - 0.01, code,
-                        transform=ccrs.PlateCarree(), zorder=100, clip_on=True,
-                        ha="right")
+            ha = "right"
+            lon_pad, lat_pad = -0.025, -0.015
+            if code == "CSWB":
+                ha = "left"
+                lon_pad, lat_pad = 0.025, -0.01
+            map_ax.text(lon + lon_pad, lat + lat_pad, code,
+                        transform=ccrs.PlateCarree(), zorder=90, clip_on=True,
+                        ha=ha, 
+                        bbox=dict(fc="white", boxstyle="round", ec="black", alpha=0.7))
 
     # Plot subduction zone
     contours = plot_subduction_zone(
@@ -669,16 +686,24 @@ def fig_1(size=(10, 10)):
         edgecolor="k", s=200.0, zorder=11, transform=ccrs.PlateCarree())
     
     big_map_ax.scatter(
-        seismographs.Longitude, seismographs.Latitude, facecolor="orange",
+        seismographs.Longitude[seismographs.Detection.astype(bool)], 
+        seismographs.Latitude[seismographs.Detection.astype(bool)], 
+        facecolor="orange",
         edgecolor="k", marker="v", zorder=10, transform=ccrs.PlateCarree(),
         s=100)
+    big_map_ax.scatter(
+        seismographs.Longitude[~seismographs.Detection.astype(bool)], 
+        seismographs.Latitude[~seismographs.Detection.astype(bool)], facecolor="orange",
+        edgecolor="k", marker="s", zorder=10, transform=ccrs.PlateCarree(),
+        s=50)
     # for lat, lon, code in zip(seismographs.Latitude, seismographs.Longitude, seismographs["Station code"]):
     #     big_map_ax.text(lon + 0.01, lat - 0.01, code,
     #                     transform=ccrs.PlateCarree(), zorder=100, clip_on=True)
 
     # Add subduction zone
     plot_subduction_zone(
-        map_ax=big_map_ax, min_latitude=big_min_lat, min_longitude=big_min_lon,        max_latitude=big_max_lat, max_longitude=big_max_lon, 
+        map_ax=big_map_ax, min_latitude=big_min_lat, min_longitude=big_min_lon,
+        max_latitude=big_max_lat, max_longitude=big_max_lon, 
         levels=[5, 25, 50, 100])
 
     # Add Faults
@@ -708,9 +733,10 @@ def fig_1(size=(10, 10)):
 
     fig.legend(
         handles=(f_line, kaik_f_line, mainshock, contours.collections[0],
-                gps_markers, seismograph_markers),
+                gps_markers, seismograph_markers, seismograph_markers_picking),
         labels=("Active Faults", "Surface Ruptures", "Mainshock", 
-                "Williams et al. Interface", "cGPS", "Seismograph"),
+                "Williams et al. Interface", "cGPS", "Seismograph", 
+                "Temporary seism."),
         framealpha=1.0)
     # Save
     for _format in PLOT_FORMATS:
