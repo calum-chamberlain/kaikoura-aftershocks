@@ -151,7 +151,7 @@ def main(
     earthquakes["Slip style"] = slip_style
 
     earthquakes.to_csv(
-        "../../Locations/GriowClust_located_magnitudes_callibrated_focal_mechanisms.csv")
+        "../../Locations/GrowClust_located_magnitudes_callibrated_focal_mechanisms.csv")
     print("Written FM file")
 
 

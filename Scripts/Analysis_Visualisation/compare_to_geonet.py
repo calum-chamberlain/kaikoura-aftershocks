@@ -178,9 +178,9 @@ def compare_to_geonet():
 def matplot_mag_plot(geonet_mags, my_mags):
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(10, 10))
 
-    ax.scatter(geonet_mags, my_mags)
+    ax.scatter(geonet_mags, my_mags, marker="+", s=1, c="k")
     ax.set_xlabel("GeoNet preferred_magnitude")
     ax.set_ylabel("Local Magnitude")
     ax.grid("on")

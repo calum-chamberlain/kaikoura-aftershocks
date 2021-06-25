@@ -37,10 +37,10 @@ CROSS_SECTIONS = {
     # "E": [(-41.958, 174.004), (-41.65296, 174.5287)]
 }
 REGIONS = {
-    "Fig. 4": ((-42.74, 172.75), (-42.4, 173.4)),
+    "Fig. 4": ((-42.78, 172.75), (-42.4, 173.5)),
     "Fig. 8": ((-42, 174), (-41.55, 174.5)),
     "Fig. 5": ((-42.55, 173.25), (-41.96, 174)),
-    "Snowgrass": ((-42.15, 173.64), (-41.94, 173.88)),
+    "Snowgrass Ck.": ((-42.15, 173.64), (-41.94, 173.88)),
 }
 RELOCATED_EVENTS = "../../Locations/GrowClust_located_magnitudes_callibrated_focal_mechanisms.csv"
 
